@@ -85,6 +85,24 @@ class Draft(APIModel):
     created_at: float
 
 
+class ContextPackSnapshot(APIModel):
+    id: str
+    chapter_id: str
+    payload: dict
+    created_at: float
+
+
+class AgentRun(APIModel):
+    id: str
+    chapter_id: str
+    agent_name: str
+    summary: str
+    status: str
+    timestamp_label: str
+    payload: dict
+    created_at: float
+
+
 class CanonPatchItem(APIModel):
     id: str
     target: str

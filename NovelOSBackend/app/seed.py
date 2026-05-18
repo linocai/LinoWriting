@@ -17,15 +17,18 @@ def seed_database(session: Session) -> None:
     if session.get(NovelModel, mock_data.NOVEL["id"]) is not None:
         return
 
-    session.add(NovelModel(**mock_data.NOVEL))
-    session.add(
-        ChapterModel(
-            **mock_data.CHAPTER,
-            user_prompt=mock_data.PROMPT_DRAFT,
-            structured_prompt=mock_data.STRUCTURED_PROMPT,
-            canon_patch=mock_data.CANON_PATCH,
-        )
+    novel = NovelModel(**mock_data.NOVEL)
+    session.add(novel)
+    session.flush()
+
+    chapter = ChapterModel(
+        **mock_data.CHAPTER,
+        user_prompt=mock_data.PROMPT_DRAFT,
+        structured_prompt=mock_data.STRUCTURED_PROMPT,
+        canon_patch=mock_data.CANON_PATCH,
     )
+    session.add(chapter)
+    session.flush()
 
     session.add_all(
         WorldBibleSectionModel(novel_id=mock_data.NOVEL["id"], **section)

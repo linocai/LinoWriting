@@ -4,6 +4,8 @@ FastAPI + PostgreSQL backend MVP for the NovelOS macOS app.
 
 This phase is a persistent Mock API. It implements the REST surface already used by the SwiftUI frontend and keeps deterministic workflow behavior. It does not call a real LLM, run Agent orchestration, or implement auth.
 
+Phase 2 adds a deterministic chapter-generation pipeline: submitting a chapter prompt now persists Intent Parser, Context Compiler, and Prompt Expander runs plus a Context Pack snapshot; draft generation persists a Writing Agent run.
+
 ## Run With Docker Compose
 
 ```bash
@@ -38,6 +40,7 @@ Tests use SQLite for speed and isolation; Docker Compose is the default Postgres
 ## Implemented API
 
 - Chapter Workflow endpoints under `/api/chapters/{chapter_id}/...`
+- Debuggable workflow artifacts at `/api/chapters/{chapter_id}/context-pack` and `/api/chapters/{chapter_id}/agent-runs`
 - World Bible, Characters, and Memory under `/api/novels/{novel_id}/...`
 - Knowledge Matrix under `/api/novels/{novel_id}/knowledge-matrix`
 - `GET /healthz`

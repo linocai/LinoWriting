@@ -52,6 +52,28 @@ class DraftModel(Base):
     created_at: Mapped[float] = mapped_column(Float, nullable=False)
 
 
+class ContextPackModel(Base):
+    __tablename__ = "context_packs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    chapter_id: Mapped[str] = mapped_column(String, ForeignKey("chapters.id"), nullable=False, unique=True)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[float] = mapped_column(Float, nullable=False)
+
+
+class AgentRunModel(Base):
+    __tablename__ = "agent_runs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    chapter_id: Mapped[str] = mapped_column(String, ForeignKey("chapters.id"), nullable=False)
+    agent_name: Mapped[str] = mapped_column(String, nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    timestamp_label: Mapped[str] = mapped_column(String, nullable=False)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[float] = mapped_column(Float, nullable=False)
+
+
 class WorldBibleSectionModel(Base):
     __tablename__ = "world_bible_sections"
 

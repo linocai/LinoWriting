@@ -141,6 +141,18 @@ def test_chapter_workflow_five_step_mock_flow(client: TestClient):
     assert structured_json["chapter_id"] == "chapter_004"
     assert structured_json["allowed_named_entities"][0]["activation"] == "ACTIVE"
 
+    context_pack = client.get("/api/chapters/chapter_004/context-pack").json()
+    assert context_pack["payload"]["active_entities"] == ["A", "B", "C"]
+    assert "allowed_named_entities" in context_pack["payload"]
+
+    prompt_runs = client.get("/api/chapters/chapter_004/agent-runs").json()
+    assert [run["agent_name"] for run in prompt_runs] == [
+        "Intent Parser",
+        "Context Compiler",
+        "Prompt Expander",
+    ]
+    assert prompt_runs[1]["payload"]["new_entity_policy"] == "allow_minor_unnamed_only"
+
     structured_json["chapter_goal"] += " 加强结尾悬念。"
     saved_prompt = client.patch("/api/chapters/chapter_004/structured-prompt", json=structured_json)
     assert saved_prompt.json()["chapter_goal"].endswith("加强结尾悬念。")
@@ -151,6 +163,10 @@ def test_chapter_workflow_five_step_mock_flow(client: TestClient):
     assert draft["version_no"] == 3
     assert draft["audit_summary"]["s0_count"] == 0
     assert isinstance(draft["created_at"], (int, float))
+
+    writing_runs = client.get("/api/chapters/chapter_004/agent-runs").json()
+    assert writing_runs[-1]["agent_name"] == "Writing Agent"
+    assert writing_runs[-1]["payload"]["draft_id"] == "draft_004_v3"
 
     revise = client.post(
         "/api/chapters/chapter_004/draft/review",

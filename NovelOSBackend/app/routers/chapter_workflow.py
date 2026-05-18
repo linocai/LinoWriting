@@ -1,17 +1,29 @@
 from fastapi import APIRouter, Depends, HTTPException, Response
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import mock_data
 from app.database import get_session
-from app.schemas import CanonUpdatePatch, Draft, DraftReviewRequest, StructuredPrompt, UserPromptRequest
+from app.models import AgentRunModel
+from app.schemas import (
+    AgentRun,
+    CanonUpdatePatch,
+    ContextPackSnapshot,
+    Draft,
+    DraftReviewRequest,
+    StructuredPrompt,
+    UserPromptRequest,
+)
 from app.services import (
     create_revision,
     ensure_canon_patch,
     ensure_initial_draft,
     ensure_structured_prompt,
     latest_draft,
+    require_context_pack,
     require_chapter,
     require_novel,
+    run_prompt_pipeline,
+    run_writing_agent,
 )
 
 router = APIRouter(prefix="/api/chapters/{chapter_id}", tags=["chapter-workflow"])
@@ -24,11 +36,7 @@ def submit_user_prompt(
     session: Session = Depends(get_session),
 ):
     chapter = require_chapter(session, chapter_id)
-    chapter.user_prompt = request.prompt
-    prompt = dict(mock_data.STRUCTURED_PROMPT)
-    prompt["chapter_id"] = chapter.id
-    chapter.structured_prompt = prompt
-    chapter.status = "structuredPromptReady"
+    run_prompt_pipeline(session, chapter, request.prompt)
     session.commit()
     return Response(status_code=204)
 
@@ -69,9 +77,7 @@ def approve_structured_prompt(chapter_id: str, session: Session = Depends(get_se
 @router.post("/draft/generate", status_code=204)
 def generate_draft(chapter_id: str, session: Session = Depends(get_session)):
     chapter = require_chapter(session, chapter_id)
-    draft = ensure_initial_draft(session, chapter)
-    chapter.status = "draftGenerated"
-    chapter.current_version_id = draft.id
+    run_writing_agent(session, chapter)
     session.commit()
     return Response(status_code=204)
 
@@ -147,3 +153,19 @@ def confirm_canon_update_patch(chapter_id: str, session: Session = Depends(get_s
     novel.current_canon_version = patch["target_canon_version"]
     session.commit()
     return Response(status_code=204)
+
+
+@router.get("/context-pack", response_model=ContextPackSnapshot)
+def get_context_pack(chapter_id: str, session: Session = Depends(get_session)):
+    require_chapter(session, chapter_id)
+    return require_context_pack(session, chapter_id)
+
+
+@router.get("/agent-runs", response_model=list[AgentRun])
+def get_agent_runs(chapter_id: str, session: Session = Depends(get_session)):
+    require_chapter(session, chapter_id)
+    return session.scalars(
+        select(AgentRunModel)
+        .where(AgentRunModel.chapter_id == chapter_id)
+        .order_by(AgentRunModel.timestamp_label, AgentRunModel.id)
+    ).all()
