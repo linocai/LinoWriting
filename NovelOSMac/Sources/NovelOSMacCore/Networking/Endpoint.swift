@@ -96,6 +96,22 @@ public extension Endpoint {
         Endpoint(method: .delete, path: "/api/novels/\(novelID)/memory/\(factID)")
     }
 
+    static func getKnowledgeMatrixEntries(novelID: String) -> Endpoint {
+        Endpoint(method: .get, path: "/api/novels/\(novelID)/knowledge-matrix")
+    }
+
+    static func createKnowledgeMatrixEntry(novelID: String, entry: KnowledgeMatrixEntry) throws -> Endpoint {
+        try json(.post, "/api/novels/\(novelID)/knowledge-matrix", entry)
+    }
+
+    static func updateKnowledgeMatrixEntry(novelID: String, entry: KnowledgeMatrixEntry) throws -> Endpoint {
+        try json(.patch, "/api/novels/\(novelID)/knowledge-matrix/\(entry.id)", entry)
+    }
+
+    static func deleteKnowledgeMatrixEntry(novelID: String, entryID: String) -> Endpoint {
+        Endpoint(method: .delete, path: "/api/novels/\(novelID)/knowledge-matrix/\(entryID)")
+    }
+
     static func submitUserPrompt(chapterID: String, prompt: String) throws -> Endpoint {
         try json(.post, "/api/chapters/\(chapterID)/user-prompt", UserPromptRequest(prompt: prompt))
     }

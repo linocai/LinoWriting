@@ -1,6 +1,6 @@
 import Foundation
 
-public actor APIClient: ChapterWorkflowAPI, BaseDocumentsAPI {
+public actor APIClient: ChapterWorkflowAPI, BaseDocumentsAPI, KnowledgeMatrixAPI {
     private let baseURL: URL
     private let session: URLSession
 
@@ -99,6 +99,22 @@ public actor APIClient: ChapterWorkflowAPI, BaseDocumentsAPI {
 
     public func deleteMemoryFact(factID: String, novelID: String) async throws {
         try await perform(Endpoint.deleteMemoryFact(novelID: novelID, factID: factID))
+    }
+
+    public func getKnowledgeMatrixEntries(novelID: String) async throws -> [KnowledgeMatrixEntry] {
+        try await perform(Endpoint.getKnowledgeMatrixEntries(novelID: novelID))
+    }
+
+    public func createKnowledgeMatrixEntry(_ entry: KnowledgeMatrixEntry, novelID: String) async throws -> KnowledgeMatrixEntry {
+        try await perform(try Endpoint.createKnowledgeMatrixEntry(novelID: novelID, entry: entry))
+    }
+
+    public func updateKnowledgeMatrixEntry(_ entry: KnowledgeMatrixEntry, novelID: String) async throws -> KnowledgeMatrixEntry {
+        try await perform(try Endpoint.updateKnowledgeMatrixEntry(novelID: novelID, entry: entry))
+    }
+
+    public func deleteKnowledgeMatrixEntry(entryID: String, novelID: String) async throws {
+        try await perform(Endpoint.deleteKnowledgeMatrixEntry(novelID: novelID, entryID: entryID))
     }
 
     private func perform(_ endpoint: Endpoint) async throws {

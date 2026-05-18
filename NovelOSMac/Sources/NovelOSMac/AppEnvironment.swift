@@ -10,6 +10,10 @@ enum AppEnvironment {
         apiClientFromEnvironment() ?? MockBaseDocumentsAPI()
     }
 
+    static var knowledgeMatrixAPI: any KnowledgeMatrixAPI {
+        apiClientFromEnvironment() ?? MockKnowledgeMatrixAPI()
+    }
+
     private static func apiClientFromEnvironment() -> APIClient? {
         let key = "NOVEL_OS_API_BASE_URL"
         let rawValue = ProcessInfo.processInfo.environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines)

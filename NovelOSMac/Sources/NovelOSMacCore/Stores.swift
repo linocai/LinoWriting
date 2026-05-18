@@ -517,17 +517,29 @@ public final class BaseDocumentsStore {
 @MainActor
 @Observable
 public final class KnowledgeMatrixStore {
+    @ObservationIgnored private let api: any KnowledgeMatrixAPI
+
+    public let novelID: String
     public var entries: [KnowledgeMatrixEntry]
     public var visibleCharacters: [String]
     public var filterText: String = ""
     public var selectedState: KnowledgeState?
+    public var selectedCharacterName: String?
     public var selectedEntryID: String?
+    public var isLoading: Bool = false
     public var isSaving: Bool = false
     public var statusMessage: String?
+    public var error: APIError?
 
-    public init() {
+    public init(api: any KnowledgeMatrixAPI = MockKnowledgeMatrixAPI(), novelID: String = MockData.novel.id) {
+        self.api = api
+        self.novelID = novelID
         entries = MockData.knowledgeEntries
         visibleCharacters = ["A", "B", "C"]
+    }
+
+    public var characterFilterOptions: [String] {
+        Array(Set(entries.flatMap { $0.characterKnowledge.map(\.characterName) } + visibleCharacters)).sorted()
     }
 
     public var filteredEntries: [KnowledgeMatrixEntry] {
@@ -537,35 +549,115 @@ public final class KnowledgeMatrixStore {
                 || entry.allowedNarration.localizedCaseInsensitiveContains(filterText)
                 || entry.truthStatus.localizedCaseInsensitiveContains(filterText)
 
+            let characterMatches = selectedCharacterName == nil
+                || entry.characterKnowledge.contains(where: { $0.characterName == selectedCharacterName })
+
             let stateMatches = selectedState == nil
                 || entry.authorKnowledge == selectedState
                 || entry.readerKnowledge == selectedState
                 || entry.characterKnowledge.contains(where: { $0.state == selectedState })
 
-            return textMatches && stateMatches
+            return textMatches && characterMatches && stateMatches
         }
     }
 
-    public func addEntry() {
-        entries.append(
-            KnowledgeMatrixEntry(
-                id: "km_\(UUID().uuidString)",
-                factTitle: "新知识条目",
-                truthStatus: "author_only",
-                authorKnowledge: .authorOnly,
-                readerKnowledge: .readerUnknown,
-                characterKnowledge: visibleCharacters.map {
-                    CharacterKnowledge(characterId: "char_\($0)", characterName: $0, state: .unknown)
-                },
-                allowedNarration: "",
-                canonVersion: MockData.novel.currentCanonVersion ?? 12
-            )
-        )
+    public func loadEntries(force: Bool = false) async {
+        isLoading = true
+        error = nil
+        defer { isLoading = false }
+
+        do {
+            entries = try await api.getKnowledgeMatrixEntries(novelID: novelID)
+            refreshVisibleCharacters()
+            statusMessage = "Knowledge Matrix 已加载。"
+        } catch {
+            handle(error)
+        }
     }
 
-    public func saveMatrix() {
+    public func addEntry() async {
         isSaving = true
-        statusMessage = "Knowledge Matrix 已保存。"
-        isSaving = false
+        error = nil
+        defer { isSaving = false }
+
+        do {
+            let created = try await api.createKnowledgeMatrixEntry(
+                KnowledgeMatrixEntry(
+                    id: "km_\(UUID().uuidString)",
+                    factTitle: "新知识条目",
+                    truthStatus: "author_only",
+                    authorKnowledge: .authorOnly,
+                    readerKnowledge: .readerUnknown,
+                    characterKnowledge: visibleCharacters.map {
+                        CharacterKnowledge(characterId: "char_\($0)", characterName: $0, state: .unknown)
+                    },
+                    allowedNarration: "",
+                    canonVersion: MockData.novel.currentCanonVersion ?? 12
+                ),
+                novelID: novelID
+            )
+            entries.append(created)
+            selectedEntryID = created.id
+            refreshVisibleCharacters()
+            statusMessage = "知识条目已新增。"
+        } catch {
+            handle(error)
+        }
+    }
+
+    public func deleteEntry(id: String) async {
+        isSaving = true
+        error = nil
+        defer { isSaving = false }
+
+        do {
+            try await api.deleteKnowledgeMatrixEntry(entryID: id, novelID: novelID)
+            entries.removeAll { $0.id == id }
+            if selectedEntryID == id {
+                selectedEntryID = nil
+            }
+            refreshVisibleCharacters()
+            statusMessage = "知识条目已删除。"
+        } catch {
+            handle(error)
+        }
+    }
+
+    public func saveMatrix() async {
+        isSaving = true
+        error = nil
+        defer { isSaving = false }
+
+        do {
+            var savedEntries: [KnowledgeMatrixEntry] = []
+            for entry in entries {
+                savedEntries.append(try await api.updateKnowledgeMatrixEntry(entry, novelID: novelID))
+            }
+            entries = savedEntries
+            refreshVisibleCharacters()
+            statusMessage = "Knowledge Matrix 已保存。"
+        } catch {
+            handle(error)
+        }
+    }
+
+    public func updateCharacterState(entryID: String, characterName: String, state: KnowledgeState) {
+        guard
+            let entryIndex = entries.firstIndex(where: { $0.id == entryID }),
+            let characterIndex = entries[entryIndex].characterKnowledge.firstIndex(where: { $0.characterName == characterName })
+        else {
+            return
+        }
+        entries[entryIndex].characterKnowledge[characterIndex].state = state
+    }
+
+    private func refreshVisibleCharacters() {
+        visibleCharacters = characterFilterOptions
+    }
+
+    private func handle(_ error: Error) {
+        let apiError = error as? APIError ?? APIError.transport(String(describing: error))
+        self.error = apiError
+        statusMessage = apiError.userMessage
     }
 }

@@ -249,6 +249,85 @@ import Foundation
     #expect(memory[0].canonStatus == "confirmed")
 }
 
+@MainActor
+@Test func knowledgeMatrixStoreLoadsFiltersSavesAndDeletes() async throws {
+    let api = MockKnowledgeMatrixAPI()
+    let store = KnowledgeMatrixStore(api: api)
+
+    await store.loadEntries()
+    #expect(store.entries.count == MockData.knowledgeEntries.count)
+    #expect(store.characterFilterOptions.contains("A"))
+
+    store.filterText = "旧案"
+    #expect(!store.filteredEntries.isEmpty)
+    store.selectedCharacterName = "A"
+    store.selectedState = .suspects
+    #expect(store.filteredEntries.contains(where: { $0.id == "km_001" }))
+
+    await store.addEntry()
+    let createdID = try #require(store.selectedEntryID)
+    store.updateCharacterState(entryID: createdID, characterName: "A", state: .known)
+    store.entries[store.entries.count - 1].allowedNarration = "测试允许叙述"
+    await store.saveMatrix()
+    #expect(store.statusMessage == "Knowledge Matrix 已保存。")
+
+    await store.deleteEntry(id: createdID)
+    #expect(!store.entries.contains(where: { $0.id == createdID }))
+}
+
+@Test func mockKnowledgeMatrixAPIRoundTripsEntries() async throws {
+    let api = MockKnowledgeMatrixAPI(entries: [])
+    let novelID = MockData.novel.id
+
+    let created = try await api.createKnowledgeMatrixEntry(MockData.knowledgeEntries[0], novelID: novelID)
+    var entries = try await api.getKnowledgeMatrixEntries(novelID: novelID)
+    #expect(entries.map(\.id) == [created.id])
+
+    var updated = created
+    updated.allowedNarration = "只能写怀疑，不能确认。"
+    _ = try await api.updateKnowledgeMatrixEntry(updated, novelID: novelID)
+    entries = try await api.getKnowledgeMatrixEntries(novelID: novelID)
+    #expect(entries[0].allowedNarration == "只能写怀疑，不能确认。")
+
+    try await api.deleteKnowledgeMatrixEntry(entryID: created.id, novelID: novelID)
+    #expect(try await api.getKnowledgeMatrixEntries(novelID: novelID).isEmpty)
+}
+
+@Test func knowledgeMatrixEndpointsConstructExpectedRequests() throws {
+    let novelID = "novel_001"
+
+    let get = Endpoint.getKnowledgeMatrixEntries(novelID: novelID)
+    #expect(get.method == .get)
+    #expect(get.path == "/api/novels/novel_001/knowledge-matrix")
+
+    let post = try Endpoint.createKnowledgeMatrixEntry(novelID: novelID, entry: MockData.knowledgeEntries[0])
+    #expect(post.method == .post)
+    #expect(post.path == "/api/novels/novel_001/knowledge-matrix")
+    let postJSON = String(data: try #require(post.body), encoding: .utf8) ?? ""
+    #expect(postJSON.contains("fact_title"))
+    #expect(postJSON.contains("character_knowledge"))
+    #expect(postJSON.contains("allowed_narration"))
+
+    let patch = try Endpoint.updateKnowledgeMatrixEntry(novelID: novelID, entry: MockData.knowledgeEntries[0])
+    #expect(patch.method == .patch)
+    #expect(patch.path == "/api/novels/novel_001/knowledge-matrix/km_001")
+
+    let delete = Endpoint.deleteKnowledgeMatrixEntry(novelID: novelID, entryID: "km_001")
+    #expect(delete.method == .delete)
+    #expect(delete.path == "/api/novels/novel_001/knowledge-matrix/km_001")
+}
+
+@Test func liveKnowledgeMatrixSnakeCaseFixtureDecodes() throws {
+    let entries = try decodeLiveFixture("LiveKnowledgeMatrixSnake", as: [KnowledgeMatrixEntry].self)
+
+    #expect(entries[0].id == "km_001")
+    #expect(entries[0].factTitle == "B 与旧案有关")
+    #expect(entries[0].authorKnowledge == .known)
+    #expect(entries[0].readerKnowledge == .hinted)
+    #expect(entries[0].characterKnowledge.first(where: { $0.characterName == "A" })?.state == .suspects)
+    #expect(entries[0].allowedNarration.contains("不能确认"))
+}
+
 private func decodeFixture<T: Decodable>(_ name: String, as type: T.Type) throws -> T {
     let url = try #require(Bundle.module.url(forResource: name, withExtension: "json"))
     let data = try Data(contentsOf: url)

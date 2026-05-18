@@ -12,14 +12,19 @@ struct KnowledgeMatrixView: View {
                 TopBarView(kicker: "Knowledge Matrix · 核心防穿帮模块", title: "谁知道什么，比发生过什么更重要") {
                     HStack(spacing: 10) {
                         Button {
-                            store.addEntry()
+                            Task {
+                                await store.addEntry()
+                            }
                         } label: {
                             Label("新增知识条目", systemImage: "plus")
                         }
                         Button("保存 Matrix") {
-                            store.saveMatrix()
+                            Task {
+                                await store.saveMatrix()
+                            }
                         }
                         .buttonStyle(.borderedProminent)
+                        .disabled(store.isSaving)
                     }
                 }
 
@@ -27,6 +32,13 @@ struct KnowledgeMatrixView: View {
                     TextField("筛选事实、限制或 truth status", text: $store.filterText)
                         .textFieldStyle(.roundedBorder)
                         .frame(maxWidth: 360)
+                    Picker("角色", selection: $store.selectedCharacterName) {
+                        Text("全部角色").tag(String?.none)
+                        ForEach(store.characterFilterOptions, id: \.self) { name in
+                            Text(name).tag(String?.some(name))
+                        }
+                    }
+                    .frame(width: 180)
                     Picker("状态", selection: $store.selectedState) {
                         Text("全部状态").tag(KnowledgeState?.none)
                         ForEach(KnowledgeState.allCases) { state in
@@ -45,6 +57,19 @@ struct KnowledgeMatrixView: View {
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
                         .background(AppTheme.green.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+
+                if store.isLoading || store.isSaving {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text(store.isLoading ? "加载 Knowledge Matrix 中" : "保存 Knowledge Matrix 中")
+                            .font(.callout)
+                            .foregroundStyle(AppTheme.muted)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(AppTheme.surfaceAlt.opacity(0.5), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
 
                 CardView {
@@ -73,21 +98,30 @@ struct KnowledgeMatrixView: View {
                                             TextField("事实", text: factTitleBinding(entry.id))
                                                 .textFieldStyle(.roundedBorder)
                                                 .frame(width: 220)
-                                            Text(entry.truthStatus)
-                                                .font(.caption)
-                                                .foregroundStyle(AppTheme.muted)
+                                            TextField("truth status", text: truthStatusBinding(entry.id))
+                                                .textFieldStyle(.roundedBorder)
+                                                .frame(width: 220)
                                         }
-                                        statePill(entry.authorKnowledge)
-                                        statePill(entry.readerKnowledge)
+                                        statePicker(authorKnowledgeBinding(entry.id), width: 130)
+                                        statePicker(readerKnowledgeBinding(entry.id), width: 130)
                                         ForEach(store.visibleCharacters, id: \.self) { name in
-                                            statePill(characterState(entry, name: name))
+                                            statePicker(characterStateBinding(entry.id, characterName: name), width: 130)
                                         }
-                                        TextField("允许叙述", text: allowedNarrationBinding(entry.id), axis: .vertical)
-                                            .textFieldStyle(.roundedBorder)
-                                            .frame(width: 320)
+                                        HStack(alignment: .top, spacing: 8) {
+                                            TextField("允许叙述", text: allowedNarrationBinding(entry.id), axis: .vertical)
+                                                .textFieldStyle(.roundedBorder)
+                                                .frame(width: 320)
+                                            Button(role: .destructive) {
+                                                Task {
+                                                    await store.deleteEntry(id: entry.id)
+                                                }
+                                            } label: {
+                                                Image(systemName: "trash")
+                                            }
+                                            .buttonStyle(.borderless)
+                                        }
                                     }
-                                    Divider()
-                                        .gridCellColumns(6 + store.visibleCharacters.count)
+                                    Divider().gridCellColumns(6 + store.visibleCharacters.count)
                                 }
                             }
                             .padding(.vertical, 2)
@@ -116,6 +150,9 @@ struct KnowledgeMatrixView: View {
             .padding(22)
         }
         .background(AppTheme.background)
+        .task {
+            await store.loadEntries()
+        }
     }
 
     private func matrixHeader(_ text: String, width: CGFloat) -> some View {
@@ -125,13 +162,15 @@ struct KnowledgeMatrixView: View {
             .frame(width: width, alignment: .leading)
     }
 
-    private func statePill(_ state: KnowledgeState) -> some View {
-        PillView(text: state.rawValue, tone: tone(for: state))
-            .frame(width: 120, alignment: .leading)
-    }
-
-    private func characterState(_ entry: KnowledgeMatrixEntry, name: String) -> KnowledgeState {
-        entry.characterKnowledge.first(where: { $0.characterName == name })?.state ?? .unknown
+    private func statePicker(_ selection: Binding<KnowledgeState>, width: CGFloat) -> some View {
+        Picker("", selection: selection) {
+            ForEach(KnowledgeState.allCases) { state in
+                Text(state.rawValue).tag(state)
+            }
+        }
+        .labelsHidden()
+        .frame(width: width)
+        .background(tone(for: selection.wrappedValue).color.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     private func tone(for state: KnowledgeState) -> PillTone {
@@ -149,6 +188,47 @@ struct KnowledgeMatrixView: View {
         } set: { value in
             guard let index = store.entries.firstIndex(where: { $0.id == id }) else { return }
             store.entries[index].factTitle = value
+        }
+    }
+
+    private func truthStatusBinding(_ id: String) -> Binding<String> {
+        Binding {
+            store.entries.first(where: { $0.id == id })?.truthStatus ?? ""
+        } set: { value in
+            guard let index = store.entries.firstIndex(where: { $0.id == id }) else { return }
+            store.entries[index].truthStatus = value
+        }
+    }
+
+    private func authorKnowledgeBinding(_ id: String) -> Binding<KnowledgeState> {
+        Binding {
+            store.entries.first(where: { $0.id == id })?.authorKnowledge ?? .unknown
+        } set: { value in
+            guard let index = store.entries.firstIndex(where: { $0.id == id }) else { return }
+            store.entries[index].authorKnowledge = value
+        }
+    }
+
+    private func readerKnowledgeBinding(_ id: String) -> Binding<KnowledgeState> {
+        Binding {
+            store.entries.first(where: { $0.id == id })?.readerKnowledge ?? .readerUnknown
+        } set: { value in
+            guard let index = store.entries.firstIndex(where: { $0.id == id }) else { return }
+            store.entries[index].readerKnowledge = value
+        }
+    }
+
+    private func characterStateBinding(_ id: String, characterName: String) -> Binding<KnowledgeState> {
+        Binding {
+            guard
+                let entry = store.entries.first(where: { $0.id == id }),
+                let knowledge = entry.characterKnowledge.first(where: { $0.characterName == characterName })
+            else {
+                return .unknown
+            }
+            return knowledge.state
+        } set: { value in
+            store.updateCharacterState(entryID: id, characterName: characterName, state: value)
         }
     }
 
