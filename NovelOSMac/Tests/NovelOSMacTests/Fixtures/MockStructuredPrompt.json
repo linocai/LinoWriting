@@ -1,0 +1,33 @@
+{
+  "id": "sp_004",
+  "chapterId": "chapter_004",
+  "chapterGoal": "让 A 对 B 的怀疑从模糊变成具体：B 不直接承认，但在旧码头的细节反应中暴露他知道旧案的关键部分。",
+  "mustHappen": [
+    "A 独自抵达旧码头，发现入口处的门锁被换过。",
+    "B 出现并试图把 A 带离码头，语气克制，不直接心虚。",
+    "A 试探旧案细节，B 对一个不该知道的细节反应过快。",
+    "C 在结尾短暂出现，给出“当年还有目击者”的线索。"
+  ],
+  "mustNotHappen": [
+    "不要揭露旧案完整真相。",
+    "不要新增有姓名角色。",
+    "不要让未激活人物出场、回忆、客串或被旁白解释。",
+    "不要把旧码头历史写成百科式说明。"
+  ],
+  "allowedNamedEntities": [
+    { "name": "A", "activation": "ACTIVE" },
+    { "name": "B", "activation": "ACTIVE" },
+    { "name": "C", "activation": "ACTIVE" },
+    { "name": "旧码头", "activation": "ACTIVE" },
+    { "name": "旧案", "activation": "ACTIVE" },
+    { "name": "A 的母亲", "activation": "MENTION_ALLOWED", "mentionBudget": 1 }
+  ],
+  "narrativeStyle": "第三人称有限视角，贴近 A。冷感、克制、少解释。通过动作、停顿和对话错位制造压力。B 的异常要藏在细节里，不要写成明显心虚。",
+  "activationSummary": {
+    "activeCast": ["A", "B", "C"],
+    "allowedNamesCount": 6,
+    "mentionBudgetTotal": 1,
+    "newNamedCharacterPolicy": "禁止，除非结构化 Prompt 明确批准"
+  },
+  "version": 1
+}

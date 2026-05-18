@@ -1,0 +1,20 @@
+.DS_Store
+*.swp
+*.swo
+
+# Swift Package Manager
+.build/
+**/.build/
+.swiftpm/configuration/registries.json
+.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
+Packages/
+
+# Xcode local state
+DerivedData/
+xcuserdata/
+*.xcuserstate
+
+# Local secrets
+.env
+.env.*
+.netrc

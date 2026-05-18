@@ -1,0 +1,35 @@
+{
+  "id": "patch_004",
+  "chapterId": "chapter_004",
+  "targetCanonVersion": 13,
+  "items": [
+    {
+      "id": "patch_memory_001",
+      "target": "Memory",
+      "title": "新增章节事实",
+      "summary": "A 在旧码头发现门锁被更换；B 在与旧案相关的细节上反应异常；C 给出“当年还有目击者”的线索。",
+      "proposedAction": "accept"
+    },
+    {
+      "id": "patch_character_001",
+      "target": "Character",
+      "title": "更新 A 的当前状态",
+      "summary": "A 对 B 的怀疑从直觉转为有具体证据，但仍不知道旧案真相。",
+      "proposedAction": "accept"
+    },
+    {
+      "id": "patch_knowledge_001",
+      "target": "Knowledge",
+      "title": "更新 Knowledge Matrix",
+      "summary": "A：suspects -> strongly_suspects；读者：hinted；B：knows。旁白仍不能确认旧案完整真相。",
+      "proposedAction": "accept"
+    },
+    {
+      "id": "patch_world_001",
+      "target": "WorldBible",
+      "title": "补充地点信息",
+      "summary": "旧码头入口门锁在第 4 章前被替换；该信息与旧码头状态相关。",
+      "proposedAction": "accept"
+    }
+  ]
+}

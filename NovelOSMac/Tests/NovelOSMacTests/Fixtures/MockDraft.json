@@ -1,0 +1,27 @@
+{
+  "id": "draft_004_v3",
+  "chapterId": "chapter_004",
+  "versionNo": 3,
+  "text": "旧码头的铁门比 A 记忆里更窄。雨水顺着门框往下淌。",
+  "wordCount": 3120,
+  "auditSummary": {
+    "s0Count": 0,
+    "s1Count": 2,
+    "s2Count": 1,
+    "illegalNamedEntityCount": 0,
+    "inactiveCharacterAppearanceCount": 0,
+    "knowledgeViolationCount": 0,
+    "newNamedEntityCount": 0,
+    "issues": [
+      {
+        "id": "audit_s1_001",
+        "severity": "S1",
+        "type": "暴露略早",
+        "location": "第 8-10 段",
+        "message": "B 的回避过于直接，可能削弱悬念。",
+        "suggestion": "把明显的否认改为更克制的动作和停顿。"
+      }
+    ]
+  },
+  "createdAt": 800000000
+}
