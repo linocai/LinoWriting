@@ -74,6 +74,19 @@ class AgentRunModel(Base):
     created_at: Mapped[float] = mapped_column(Float, nullable=False)
 
 
+class AuditReportModel(Base):
+    __tablename__ = "audit_reports"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    chapter_id: Mapped[str] = mapped_column(String, ForeignKey("chapters.id"), nullable=False)
+    draft_id: Mapped[str] = mapped_column(String, ForeignKey("chapter_versions.id"), nullable=False, unique=True)
+    named_entity_result: Mapped[dict] = mapped_column(JSON, nullable=False)
+    knowledge_result: Mapped[dict] = mapped_column(JSON, nullable=False)
+    continuity_result: Mapped[dict] = mapped_column(JSON, nullable=False)
+    summary: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[float] = mapped_column(Float, nullable=False)
+
+
 class WorldBibleSectionModel(Base):
     __tablename__ = "world_bible_sections"
 

@@ -103,6 +103,17 @@ class AgentRun(APIModel):
     created_at: float
 
 
+class AuditReport(APIModel):
+    id: str
+    chapter_id: str
+    draft_id: str
+    named_entity_result: dict
+    knowledge_result: dict
+    continuity_result: dict
+    summary: AuditSummary
+    created_at: float
+
+
 class CanonPatchItem(APIModel):
     id: str
     target: str

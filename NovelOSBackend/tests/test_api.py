@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.database import Base, get_session
 from app.main import create_app
-from app.models import ChapterModel, NovelModel
+from app.models import ChapterModel, DraftModel, NovelModel
 from app.seed import seed_database
 
 
@@ -165,8 +165,17 @@ def test_chapter_workflow_five_step_mock_flow(client: TestClient):
     assert isinstance(draft["created_at"], (int, float))
 
     writing_runs = client.get("/api/chapters/chapter_004/agent-runs").json()
-    assert writing_runs[-1]["agent_name"] == "Writing Agent"
-    assert writing_runs[-1]["payload"]["draft_id"] == "draft_004_v3"
+    agent_names = [run["agent_name"] for run in writing_runs]
+    assert "Writing Agent" in agent_names
+    assert "Named Entity Auditor" in agent_names
+    assert "Knowledge Auditor" in agent_names
+    assert "Continuity Auditor" in agent_names
+    assert next(run for run in writing_runs if run["agent_name"] == "Writing Agent")["payload"]["draft_id"] == "draft_004_v3"
+
+    audit = client.get("/api/chapters/chapter_004/audit/latest").json()
+    assert audit["draft_id"] == "draft_004_v3"
+    assert audit["summary"]["s0_count"] == 0
+    assert audit["named_entity_result"]["illegal_named_entity_count"] == 0
 
     revise = client.post(
         "/api/chapters/chapter_004/draft/review",
@@ -175,6 +184,10 @@ def test_chapter_workflow_five_step_mock_flow(client: TestClient):
     assert revise.status_code == 204
     revised_draft = client.get("/api/chapters/chapter_004/draft/latest").json()
     assert revised_draft["version_no"] == draft["version_no"] + 1
+    revised_runs = client.get("/api/chapters/chapter_004/agent-runs").json()
+    assert any(run["agent_name"] == "Revision Agent" for run in revised_runs)
+    revised_audit = client.get("/api/chapters/chapter_004/audit/latest").json()
+    assert revised_audit["draft_id"] == revised_draft["id"]
 
     assert client.post("/api/chapters/chapter_004/draft/review", json={"decision": "approve"}).status_code == 204
     assert client.post("/api/chapters/chapter_004/approve-final-text").status_code == 204
@@ -192,3 +205,31 @@ def test_chapter_workflow_five_step_mock_flow(client: TestClient):
         chapter = session.scalar(select(ChapterModel).where(ChapterModel.id == "chapter_004"))
         assert novel.current_canon_version == 13
         assert chapter.status == "completed"
+
+
+def test_s0_audit_blocks_draft_approval(client: TestClient):
+    assert client.post("/api/chapters/chapter_004/draft/generate").status_code == 204
+
+    session_factory = client.app.state.testing_session_factory
+    with session_factory() as session:
+        draft = session.scalar(select(DraftModel).where(DraftModel.id == "draft_004_v3"))
+        draft.audit_summary = {
+            **draft.audit_summary,
+            "s0_count": 1,
+            "issues": [
+                *draft.audit_summary["issues"],
+                {
+                    "id": "audit_s0_001",
+                    "severity": "S0",
+                    "type": "非法命名实体",
+                    "location": "第 1 段",
+                    "message": "出现未允许命名人物。",
+                    "suggestion": "删除该命名人物。",
+                },
+            ],
+        }
+        session.commit()
+
+    response = client.post("/api/chapters/chapter_004/draft/review", json={"decision": "approve"})
+    assert response.status_code == 409
+    assert "S0" in response.json()["detail"]

@@ -6,6 +6,8 @@ This phase is a persistent Mock API. It implements the REST surface already used
 
 Phase 2 adds a deterministic chapter-generation pipeline: submitting a chapter prompt now persists Intent Parser, Context Compiler, and Prompt Expander runs plus a Context Pack snapshot; draft generation persists a Writing Agent run.
 
+Phase 3 adds deterministic draft review support: Writing and Revision output now produces Named Entity, Knowledge, and Continuity audit runs plus a persisted Audit Report. Draft approval is blocked with `409` when the latest draft has S0 audit issues.
+
 ## Run With Docker Compose
 
 ```bash
@@ -41,6 +43,7 @@ Tests use SQLite for speed and isolation; Docker Compose is the default Postgres
 
 - Chapter Workflow endpoints under `/api/chapters/{chapter_id}/...`
 - Debuggable workflow artifacts at `/api/chapters/{chapter_id}/context-pack` and `/api/chapters/{chapter_id}/agent-runs`
+- Latest draft audit report at `/api/chapters/{chapter_id}/audit/latest`
 - World Bible, Characters, and Memory under `/api/novels/{novel_id}/...`
 - Knowledge Matrix under `/api/novels/{novel_id}/knowledge-matrix`
 - `GET /healthz`

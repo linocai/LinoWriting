@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import mock_data
-from app.models import AgentRunModel, ChapterModel, ContextPackModel, DraftModel, NovelModel
+from app.models import AgentRunModel, AuditReportModel, ChapterModel, ContextPackModel, DraftModel, NovelModel
 
 APPLE_REFERENCE_DATE = datetime(2001, 1, 1, tzinfo=timezone.utc)
 
@@ -42,6 +42,15 @@ def latest_draft(session: Session, chapter_id: str) -> DraftModel | None:
         select(DraftModel)
         .where(DraftModel.chapter_id == chapter_id)
         .order_by(DraftModel.version_no.desc())
+        .limit(1)
+    )
+
+
+def latest_audit_report(session: Session, chapter_id: str) -> AuditReportModel | None:
+    return session.scalar(
+        select(AuditReportModel)
+        .where(AuditReportModel.chapter_id == chapter_id)
+        .order_by(AuditReportModel.created_at.desc(), AuditReportModel.id.desc())
         .limit(1)
     )
 
@@ -201,7 +210,114 @@ def run_writing_agent(session: Session, chapter: ChapterModel) -> DraftModel:
         timestamp_label="12:08",
         payload={"draft_id": draft.id, "version_no": draft.version_no},
     )
+    run_audit_pipeline(session, chapter, draft, timestamp_prefix="12:09")
     return draft
+
+
+def audit_summary_has_s0(draft: DraftModel) -> bool:
+    summary = draft.audit_summary or {}
+    return int(summary.get("s0_count", 0)) > 0
+
+
+def require_s0_free(draft: DraftModel) -> None:
+    if audit_summary_has_s0(draft):
+        raise HTTPException(status_code=409, detail="Draft has S0 audit issues and cannot be approved.")
+
+
+def audit_result_payload(draft: DraftModel, auditor: str) -> dict:
+    summary = draft.audit_summary or mock_data.AUDIT_SUMMARY
+    if auditor == "named_entity":
+        return {
+            "illegal_named_entity_count": summary["illegal_named_entity_count"],
+            "inactive_character_appearance_count": summary["inactive_character_appearance_count"],
+            "new_named_entity_count": summary["new_named_entity_count"],
+            "passed": summary["s0_count"] == 0,
+        }
+    if auditor == "knowledge":
+        return {
+            "knowledge_violation_count": summary["knowledge_violation_count"],
+            "checked_limits": [
+                "A cannot know the full truth of the old case",
+                "Narration cannot confirm B's full involvement",
+            ],
+            "passed": summary["knowledge_violation_count"] == 0,
+        }
+    return {
+        "s1_count": summary["s1_count"],
+        "s2_count": summary["s2_count"],
+        "issues": summary["issues"],
+        "passed": summary["s0_count"] == 0,
+    }
+
+
+def run_audit_pipeline(
+    session: Session,
+    chapter: ChapterModel,
+    draft: DraftModel,
+    *,
+    timestamp_prefix: str,
+) -> AuditReportModel:
+    session.flush()
+    draft.audit_summary = draft.audit_summary or mock_data.AUDIT_SUMMARY
+    named_entity_result = audit_result_payload(draft, "named_entity")
+    knowledge_result = audit_result_payload(draft, "knowledge")
+    continuity_result = audit_result_payload(draft, "continuity")
+
+    upsert_agent_run(
+        session,
+        run_id=f"{draft.id}_named_entity_auditor",
+        chapter_id=chapter.id,
+        agent_name="Named Entity Auditor",
+        summary="检查非法命名实体、未激活人物和新增命名角色。",
+        status="pass" if named_entity_result["passed"] else "block",
+        timestamp_label=timestamp_prefix,
+        payload={"draft_id": draft.id, **named_entity_result},
+    )
+    upsert_agent_run(
+        session,
+        run_id=f"{draft.id}_knowledge_auditor",
+        chapter_id=chapter.id,
+        agent_name="Knowledge Auditor",
+        summary="检查 Knowledge Matrix 限制和旁白泄露风险。",
+        status="pass" if knowledge_result["passed"] else "block",
+        timestamp_label=increment_timestamp(timestamp_prefix, 1),
+        payload={"draft_id": draft.id, **knowledge_result},
+    )
+    upsert_agent_run(
+        session,
+        run_id=f"{draft.id}_continuity_auditor",
+        chapter_id=chapter.id,
+        agent_name="Continuity Auditor",
+        summary=f"S0={draft.audit_summary['s0_count']}，S1={draft.audit_summary['s1_count']}，S2={draft.audit_summary['s2_count']}。",
+        status="suggest" if draft.audit_summary["s1_count"] or draft.audit_summary["s2_count"] else "pass",
+        timestamp_label=increment_timestamp(timestamp_prefix, 2),
+        payload={"draft_id": draft.id, **continuity_result},
+    )
+
+    report_id = f"audit_{draft.id}"
+    report = session.get(AuditReportModel, report_id)
+    values = {
+        "chapter_id": chapter.id,
+        "draft_id": draft.id,
+        "named_entity_result": named_entity_result,
+        "knowledge_result": knowledge_result,
+        "continuity_result": continuity_result,
+        "summary": draft.audit_summary,
+        "created_at": apple_timestamp_now(),
+    }
+    if report is None:
+        report = AuditReportModel(id=report_id, **values)
+        session.add(report)
+    else:
+        for key, value in values.items():
+            setattr(report, key, value)
+    return report
+
+
+def increment_timestamp(label: str, minutes: int) -> str:
+    hour, minute = label.split(":")
+    total_minutes = int(hour) * 60 + int(minute) + minutes
+    return f"{total_minutes // 60:02}:{total_minutes % 60:02}"
 
 
 def create_revision(session: Session, chapter: ChapterModel, feedback: str | None) -> DraftModel:
@@ -221,4 +337,20 @@ def create_revision(session: Session, chapter: ChapterModel, feedback: str | Non
     session.add(revision)
     chapter.current_version_id = revision.id
     chapter.status = "revisionRequired"
+    upsert_agent_run(
+        session,
+        run_id=f"{chapter.id}_revision_agent_v{next_version}",
+        chapter_id=chapter.id,
+        agent_name="Revision Agent",
+        summary=f"按用户意见生成 v{next_version}，保留正文审核步骤。",
+        status="revision_generated",
+        timestamp_label="12:12",
+        payload={
+            "from_draft_id": current.id,
+            "draft_id": revision.id,
+            "feedback": feedback or "",
+            "version_no": next_version,
+        },
+    )
+    run_audit_pipeline(session, chapter, revision, timestamp_prefix="12:13")
     return revision

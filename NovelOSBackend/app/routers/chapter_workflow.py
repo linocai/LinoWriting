@@ -6,6 +6,7 @@ from app.database import get_session
 from app.models import AgentRunModel
 from app.schemas import (
     AgentRun,
+    AuditReport,
     CanonUpdatePatch,
     ContextPackSnapshot,
     Draft,
@@ -18,10 +19,12 @@ from app.services import (
     ensure_canon_patch,
     ensure_initial_draft,
     ensure_structured_prompt,
+    latest_audit_report,
     latest_draft,
     require_context_pack,
     require_chapter,
     require_novel,
+    require_s0_free,
     run_prompt_pipeline,
     run_writing_agent,
 )
@@ -102,6 +105,7 @@ def review_draft(
         create_revision(session, chapter, request.feedback)
     else:
         draft = ensure_initial_draft(session, chapter)
+        require_s0_free(draft)
         chapter.status = "draftApproved"
         chapter.current_version_id = draft.id
         chapter.approved_version_id = draft.id
@@ -113,6 +117,7 @@ def review_draft(
 def approve_final_text(chapter_id: str, session: Session = Depends(get_session)):
     chapter = require_chapter(session, chapter_id)
     draft = ensure_initial_draft(session, chapter)
+    require_s0_free(draft)
     ensure_canon_patch(chapter)
     chapter.status = "canonPatchPending"
     chapter.current_version_id = draft.id
@@ -169,3 +174,12 @@ def get_agent_runs(chapter_id: str, session: Session = Depends(get_session)):
         .where(AgentRunModel.chapter_id == chapter_id)
         .order_by(AgentRunModel.timestamp_label, AgentRunModel.id)
     ).all()
+
+
+@router.get("/audit/latest", response_model=AuditReport)
+def get_latest_audit_report(chapter_id: str, session: Session = Depends(get_session)):
+    require_chapter(session, chapter_id)
+    report = latest_audit_report(session, chapter_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail=f"Audit report not found for chapter: {chapter_id}")
+    return report
