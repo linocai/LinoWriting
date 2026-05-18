@@ -9,7 +9,6 @@ public protocol BaseDocumentsAPI: Sendable {
     func getCharacterCards(novelID: String) async throws -> [CharacterCard]
     func createCharacterCard(_ card: CharacterCard, novelID: String) async throws -> CharacterCard
     func updateCharacterCard(_ card: CharacterCard, novelID: String) async throws -> CharacterCard
-    func deleteCharacterCard(characterID: String, novelID: String) async throws
 
     func getMemoryFacts(novelID: String) async throws -> [MemoryFact]
     func createMemoryFact(_ fact: MemoryFact, novelID: String) async throws -> MemoryFact

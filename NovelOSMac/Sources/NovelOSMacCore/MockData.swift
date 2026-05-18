@@ -391,4 +391,72 @@ public enum MockData {
         AgentRun(id: "run_003", agentName: "Prompt Expander", summary: "生成结构化 Prompt。", status: "user approved", timestampLabel: "12:04"),
         AgentRun(id: "run_004", agentName: "Audit Agents", summary: "S0=0，S1=2，S2=1。", status: "suggest", timestampLabel: "12:10")
     ]
+
+    public static let chapterVersions: [ChapterVersionSnapshot] = [
+        ChapterVersionSnapshot(
+            id: "version_draft_001",
+            chapterId: "chapter_004",
+            versionNo: 1,
+            kind: "draft",
+            status: "archived",
+            wordCount: 3280,
+            auditSummary: AuditSummary(
+                s0Count: 0,
+                s1Count: 3,
+                s2Count: 2,
+                illegalNamedEntityCount: 0,
+                inactiveCharacterAppearanceCount: 0,
+                knowledgeViolationCount: 0,
+                newNamedEntityCount: 0,
+                issues: []
+            ),
+            note: "初稿，旧码头背景解释偏多。",
+            createdAtLabel: "12:08"
+        ),
+        ChapterVersionSnapshot(
+            id: "version_draft_002",
+            chapterId: "chapter_004",
+            versionNo: 2,
+            kind: "mock revision",
+            status: "archived",
+            wordCount: 3180,
+            auditSummary: AuditSummary(
+                s0Count: 0,
+                s1Count: 2,
+                s2Count: 1,
+                illegalNamedEntityCount: 0,
+                inactiveCharacterAppearanceCount: 0,
+                knowledgeViolationCount: 0,
+                newNamedEntityCount: 0,
+                issues: []
+            ),
+            note: "按意见压缩背景，保留 B 的异常反应。",
+            createdAtLabel: "12:13"
+        ),
+        ChapterVersionSnapshot(
+            id: "version_final_003",
+            chapterId: "chapter_004",
+            versionNo: 3,
+            kind: "final",
+            status: "approved_final",
+            wordCount: 3120,
+            auditSummary: auditSummary,
+            note: "当前批准候选版本，Canon Patch 待确认。",
+            createdAtLabel: "12:18"
+        )
+    ]
+
+    public static func debugExportPayload(
+        chapter: Chapter = MockData.chapter,
+        exportedAt: Date = MockData.now
+    ) -> DebugExportPayload {
+        DebugExportPayload(
+            exportedAt: exportedAt,
+            novel: novel,
+            chapter: chapter,
+            contextPackJSON: contextPackJSON,
+            agentRuns: agentRuns,
+            chapterVersions: chapterVersions
+        )
+    }
 }

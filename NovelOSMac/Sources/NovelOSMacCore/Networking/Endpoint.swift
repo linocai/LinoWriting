@@ -76,10 +76,6 @@ public extension Endpoint {
         try json(.patch, "/api/novels/\(novelID)/characters/\(card.id)", card)
     }
 
-    static func deleteCharacterCard(novelID: String, characterID: String) -> Endpoint {
-        Endpoint(method: .delete, path: "/api/novels/\(novelID)/characters/\(characterID)")
-    }
-
     static func getMemoryFacts(novelID: String) -> Endpoint {
         Endpoint(method: .get, path: "/api/novels/\(novelID)/memory")
     }

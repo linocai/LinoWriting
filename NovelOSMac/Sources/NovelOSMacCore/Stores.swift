@@ -445,20 +445,6 @@ public final class BaseDocumentsStore {
         }
     }
 
-    public func deleteCharacter(id: String) async {
-        isSaving = true
-        error = nil
-        defer { isSaving = false }
-
-        do {
-            try await api.deleteCharacterCard(characterID: id, novelID: novelID)
-            characterCards.removeAll { $0.id == id }
-            statusMessage = "人物卡已删除。"
-        } catch {
-            handle(error)
-        }
-    }
-
     public func deleteMemoryFact(id: String) async {
         isSaving = true
         error = nil

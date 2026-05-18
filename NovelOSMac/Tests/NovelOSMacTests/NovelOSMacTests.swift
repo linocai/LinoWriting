@@ -146,7 +146,7 @@ import Foundation
 }
 
 @MainActor
-@Test func baseDocumentsStoreLoadsCreatesSavesAndDeletes() async throws {
+@Test func baseDocumentsStoreLoadsCreatesSavesAndDeletesBackendAlignedResources() async throws {
     let api = MockBaseDocumentsAPI()
     let store = BaseDocumentsStore(api: api)
 
@@ -167,16 +167,17 @@ import Foundation
     let characterID = try #require(store.characterCards.last?.id)
     store.characterCards[store.characterCards.count - 1].name = "测试人物"
     store.addRelationship(to: characterID)
+    store.characterCards[store.characterCards.count - 1].currentState = "测试人物状态"
     let factID = try #require(store.memoryFacts.last?.id)
     store.memoryFacts[store.memoryFacts.count - 1].summary = "测试事实"
     await store.saveChanges()
     #expect(store.statusMessage == "基础文件已保存，后台 reindex 已完成。")
+    #expect(store.characterCards.last?.relationships.count == 1)
 
     await store.deleteWorldBibleSection(id: sectionID)
-    await store.deleteCharacter(id: characterID)
     await store.deleteMemoryFact(id: factID)
     #expect(!store.worldBibleSections.contains(where: { $0.id == sectionID }))
-    #expect(!store.characterCards.contains(where: { $0.id == characterID }))
+    #expect(store.characterCards.contains(where: { $0.id == characterID }))
     #expect(!store.memoryFacts.contains(where: { $0.id == factID }))
 }
 
@@ -200,8 +201,6 @@ import Foundation
     updatedCharacter.currentState = "已更新"
     _ = try await api.updateCharacterCard(updatedCharacter, novelID: novelID)
     #expect(try await api.getCharacterCards(novelID: novelID).first?.currentState == "已更新")
-    try await api.deleteCharacterCard(characterID: character.id, novelID: novelID)
-    #expect(try await api.getCharacterCards(novelID: novelID).isEmpty)
 
     let fact = try await api.createMemoryFact(MockData.memoryFacts[0], novelID: novelID)
     var updatedFact = fact
@@ -232,9 +231,40 @@ import Foundation
     #expect(characterJSON.contains("stable_traits"))
     #expect(characterJSON.contains("target_character_name"))
 
+    let characterPatch = try Endpoint.updateCharacterCard(novelID: novelID, card: MockData.characterCards[0])
+    #expect(characterPatch.method == .patch)
+    #expect(characterPatch.path == "/api/novels/novel_001/characters/char_A")
+
     let memoryDelete = Endpoint.deleteMemoryFact(novelID: novelID, factID: "mem_001")
     #expect(memoryDelete.method == .delete)
     #expect(memoryDelete.path == "/api/novels/novel_001/memory/mem_001")
+}
+
+@Test func debugExportPayloadEncodesExpectedResources() throws {
+    let payload = MockData.debugExportPayload()
+    let json = try payload.prettyPrintedJSON()
+    let decoded = try APIJSONCoding.makeDecoder().decode(DebugExportPayload.self, from: Data(json.utf8))
+
+    #expect(decoded.contextPackJSON.contains("allowed_named_entities"))
+    #expect(decoded.agentRuns.map(\.agentName).contains("Context Compiler"))
+    #expect(decoded.chapterVersions.contains(where: { $0.kind == "final" }))
+    #expect(json.contains("chapter_versions"))
+    #expect(json.contains("context_pack_json"))
+    #expect(json.contains("agent_runs"))
+}
+
+@Test func characterAPIAlignmentHasNoUndocumentedDeleteEndpoint() throws {
+    let novelID = "novel_001"
+    let get = Endpoint.getCharacterCards(novelID: novelID)
+    let create = try Endpoint.createCharacterCard(novelID: novelID, card: MockData.characterCards[0])
+    let update = try Endpoint.updateCharacterCard(novelID: novelID, card: MockData.characterCards[0])
+
+    #expect(get.method == .get)
+    #expect(get.path == "/api/novels/novel_001/characters")
+    #expect(create.method == .post)
+    #expect(create.path == "/api/novels/novel_001/characters")
+    #expect(update.method == .patch)
+    #expect(update.path == "/api/novels/novel_001/characters/char_A")
 }
 
 @Test func liveBaseDocumentsSnakeCaseFixturesDecode() throws {

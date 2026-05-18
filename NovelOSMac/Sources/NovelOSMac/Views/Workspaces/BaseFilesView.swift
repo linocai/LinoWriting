@@ -175,16 +175,6 @@ struct BaseFilesView: View {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 12, alignment: .top)], alignment: .leading, spacing: 12) {
                     ForEach($store.characterCards) { $card in
                         ContentBlock(card.name) {
-                            HStack {
-                                Spacer()
-                                Button(role: .destructive) {
-                                    Task {
-                                        await store.deleteCharacter(id: card.id)
-                                    }
-                                } label: {
-                                    Label("删除", systemImage: "trash")
-                                }
-                            }
                             TextField("姓名", text: $card.name)
                                 .textFieldStyle(.roundedBorder)
                             TextField("角色", text: $card.role)

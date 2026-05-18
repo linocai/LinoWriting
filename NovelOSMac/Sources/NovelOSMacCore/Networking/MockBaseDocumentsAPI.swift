@@ -63,14 +63,6 @@ public actor MockBaseDocumentsAPI: BaseDocumentsAPI {
         return card
     }
 
-    public func deleteCharacterCard(characterID: String, novelID: String) async throws {
-        try validate(novelID)
-        guard let index = characterCards.firstIndex(where: { $0.id == characterID }) else {
-            throw APIError.missingResource("character \(characterID)")
-        }
-        characterCards.remove(at: index)
-    }
-
     public func getMemoryFacts(novelID: String) async throws -> [MemoryFact] {
         try validate(novelID)
         return memoryFacts

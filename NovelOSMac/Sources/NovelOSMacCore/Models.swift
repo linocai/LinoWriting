@@ -253,6 +253,45 @@ public struct AgentRun: Identifiable, Codable, Equatable, Sendable {
     public var timestampLabel: String
 }
 
+public struct ChapterVersionSnapshot: Identifiable, Codable, Equatable, Sendable {
+    public let id: String
+    public var chapterId: String
+    public var versionNo: Int
+    public var kind: String
+    public var status: String
+    public var wordCount: Int
+    public var auditSummary: AuditSummary?
+    public var note: String
+    public var createdAtLabel: String
+}
+
+public struct DebugExportPayload: Codable, Equatable, Sendable {
+    public var exportedAt: Date
+    public var novel: Novel
+    public var chapter: Chapter
+    public var contextPackJSON: String
+    public var agentRuns: [AgentRun]
+    public var chapterVersions: [ChapterVersionSnapshot]
+
+    enum CodingKeys: String, CodingKey {
+        case exportedAt
+        case novel
+        case chapter
+        case contextPackJSON = "contextPackJson"
+        case agentRuns
+        case chapterVersions
+    }
+}
+
+public extension DebugExportPayload {
+    func prettyPrintedJSON() throws -> String {
+        let encoder = APIJSONCoding.makeEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(self)
+        return String(data: data, encoding: .utf8) ?? "{}"
+    }
+}
+
 public struct ToastState: Identifiable, Codable, Equatable, Sendable {
     public let id: String
     public var message: String

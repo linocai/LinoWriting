@@ -81,10 +81,6 @@ public actor APIClient: ChapterWorkflowAPI, BaseDocumentsAPI, KnowledgeMatrixAPI
         try await perform(try Endpoint.updateCharacterCard(novelID: novelID, card: card))
     }
 
-    public func deleteCharacterCard(characterID: String, novelID: String) async throws {
-        try await perform(Endpoint.deleteCharacterCard(novelID: novelID, characterID: characterID))
-    }
-
     public func getMemoryFacts(novelID: String) async throws -> [MemoryFact] {
         try await perform(Endpoint.getMemoryFacts(novelID: novelID))
     }
