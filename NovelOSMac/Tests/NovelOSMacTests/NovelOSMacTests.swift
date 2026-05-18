@@ -171,7 +171,7 @@ import Foundation
     let factID = try #require(store.memoryFacts.last?.id)
     store.memoryFacts[store.memoryFacts.count - 1].summary = "测试事实"
     await store.saveChanges()
-    #expect(store.statusMessage == "基础文件已保存，后台 reindex 已完成。")
+    #expect(store.statusMessage == "基础文件已保存，检索索引已更新。")
     #expect(store.characterCards.last?.relationships.count == 1)
 
     await store.deleteWorldBibleSection(id: sectionID)

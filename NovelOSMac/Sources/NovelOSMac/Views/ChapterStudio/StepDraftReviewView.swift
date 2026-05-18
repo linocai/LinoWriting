@@ -26,7 +26,7 @@ struct StepDraftReviewView: View {
                         HStack(alignment: .top, spacing: 16) {
                             draftEditorAndFeedback
                             auditPanel
-                                .frame(width: 300)
+                                .frame(width: 320)
                         }
 
                         VStack(alignment: .leading, spacing: 14) {
@@ -34,6 +34,10 @@ struct StepDraftReviewView: View {
                             auditPanel
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    if let reason = store.finalApprovalBlockedReason {
+                        StatusBanner(message: reason, tone: .red)
                     }
                 }
             }
@@ -43,11 +47,13 @@ struct StepDraftReviewView: View {
                         await store.requestRevision()
                     }
                 }
+                .buttonStyle(PrimaryButtonStyle())
                 .disabled(store.reviewFeedback.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.draft == nil)
 
                 Button("保存当前版本") {
                     store.saveCurrentDraftVersion()
                 }
+                .buttonStyle(GhostButtonStyle())
                 .disabled(store.draft == nil)
 
                 Button("我满意，进入批准") {
@@ -55,7 +61,7 @@ struct StepDraftReviewView: View {
                         _ = await store.approveDraftForFinalReview()
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(BlueButtonStyle())
                 .disabled(store.draft == nil || store.finalApprovalBlockedReason != nil)
             }
         }
@@ -74,44 +80,28 @@ struct StepDraftReviewView: View {
         @Bindable var store = store
 
         return VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("第 \(store.chapter.chapterNo) 章正文")
-                        .font(.headline)
-                    Spacer()
-                    Text("可直接编辑正文，也可在下方写修改意见")
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.muted)
-                }
-                TextEditor(text: draftTextBinding)
-                    .font(.body)
-                    .frame(minHeight: 420)
-                    .padding(8)
-                    .background(AppTheme.surfaceAlt.opacity(0.4), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(AppTheme.border))
+            LabeledField("第 \(store.chapter.chapterNo) 章正文", hint: "可直接编辑正文，也可在下方写修改意见") {
+                SoftTextEditor(
+                    text: draftTextBinding,
+                    minHeight: 520,
+                    font: .system(size: 15, weight: .regular, design: .default)
+                )
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("我的修改意见")
-                        .font(.headline)
-                    Spacer()
-                    Text("属于“审核正文”动作，不新增流程")
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.muted)
-                }
-                TextEditor(text: $store.reviewFeedback)
-                    .frame(minHeight: 92)
-                    .padding(8)
-                    .background(AppTheme.surfaceAlt.opacity(0.4), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(AppTheme.border))
+            LabeledField("我的修改意见", hint: "属于“审核正文”动作，不新增流程") {
+                SoftTextEditor(
+                    text: $store.reviewFeedback,
+                    placeholder: "写下你希望系统重修的方向。",
+                    minHeight: 92,
+                    idealHeight: 120
+                )
             }
         }
     }
 
     private var auditPanel: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ContentBlock("自动审计摘要") {
+            ContentBlock("自动审计摘要", tone: .blue) {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(store.auditSummary?.issues ?? []) { issue in
                         AuditIssueView(issue: issue)
@@ -119,19 +109,11 @@ struct StepDraftReviewView: View {
                 }
             }
 
-            ContentBlock("越界检查") {
+            ContentBlock("越界检查", tone: .green) {
                 MetricRowView(title: "非法专名", value: "\(store.auditSummary?.illegalNamedEntityCount ?? 0)", tone: (store.auditSummary?.illegalNamedEntityCount ?? 0) > 0 ? .red : .green)
                 MetricRowView(title: "未激活角色出场", value: "\(store.auditSummary?.inactiveCharacterAppearanceCount ?? 0)", tone: .green)
                 MetricRowView(title: "知识越界", value: "\(store.auditSummary?.knowledgeViolationCount ?? 0)", tone: .green)
                 MetricRowView(title: "新增命名角色", value: "\(store.auditSummary?.newNamedEntityCount ?? 0)", tone: .green)
-            }
-
-            if let reason = store.finalApprovalBlockedReason {
-                Text(reason)
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(AppTheme.red)
-                    .padding(10)
-                    .background(AppTheme.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
         }
     }

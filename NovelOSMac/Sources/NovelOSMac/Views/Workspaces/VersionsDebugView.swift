@@ -19,16 +19,12 @@ struct VersionsDebugView: View {
                         } label: {
                             Label("导出记录", systemImage: "square.and.arrow.up")
                         }
+                        .buttonStyle(GhostButtonStyle())
                     }
                 }
 
                 if let exportStatus {
-                    Text(exportStatus)
-                        .font(.callout.weight(.medium))
-                        .foregroundStyle(exportIsError ? AppTheme.red : AppTheme.green)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background((exportIsError ? AppTheme.red : AppTheme.green).opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    StatusBanner(message: exportStatus, tone: exportIsError ? .red : .green)
                 }
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 360), spacing: 16, alignment: .top)], alignment: .leading, spacing: 16) {
@@ -73,23 +69,15 @@ struct VersionsDebugView: View {
                         CardBody {
                             VStack(alignment: .leading, spacing: 10) {
                                 ForEach(MockData.agentRuns) { run in
-                                    HStack(alignment: .top, spacing: 12) {
-                                        Text(run.timestampLabel)
-                                            .font(.caption.weight(.bold))
-                                            .foregroundStyle(AppTheme.muted)
-                                            .frame(width: 42, alignment: .leading)
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            Text(run.agentName)
-                                                .font(.headline)
-                                            Text(run.summary)
-                                                .font(.callout)
-                                                .foregroundStyle(AppTheme.muted)
-                                        }
-                                        Spacer()
+                                    TimelineItemView(
+                                        badge: run.timestampLabel,
+                                        title: run.agentName,
+                                        subtitle: run.summary,
+                                        tone: run.status == "pass" ? .green : .orange
+                                    ) {
+                                    } trailing: {
                                         PillView(text: run.status, tone: run.status == "pass" ? .green : .orange)
                                     }
-                                    .padding(10)
-                                    .background(AppTheme.surfaceAlt.opacity(0.45), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                                 }
                             }
                         }
@@ -105,24 +93,17 @@ struct VersionsDebugView: View {
                     CardBody {
                         VStack(alignment: .leading, spacing: 10) {
                             ForEach(MockData.chapterVersions) { version in
-                                HStack(alignment: .top, spacing: 12) {
-                                    Text("v\(version.versionNo)")
-                                        .font(.headline.weight(.bold))
-                                        .foregroundStyle(AppTheme.blue)
-                                        .frame(width: 42, alignment: .leading)
-
-                                    VStack(alignment: .leading, spacing: 6) {
+                                TimelineItemView(
+                                    badge: "v\(version.versionNo)",
+                                    title: version.note,
+                                    subtitle: version.createdAtLabel,
+                                    tone: version.kind == "final" ? .green : .blue
+                                ) {
+                                    VStack(alignment: .leading, spacing: 8) {
                                         HStack(spacing: 8) {
                                             PillView(text: version.kind, tone: version.kind == "final" ? .green : .blue)
                                             PillView(text: version.status, tone: version.status == "approved_final" ? .green : .orange)
-                                            Text(version.createdAtLabel)
-                                                .font(.caption.weight(.bold))
-                                                .foregroundStyle(AppTheme.muted)
                                         }
-
-                                        Text(version.note)
-                                            .font(.callout)
-                                            .foregroundStyle(AppTheme.text)
 
                                         HStack(spacing: 12) {
                                             MetricInline(title: "字数", value: "\(version.wordCount)")
@@ -131,10 +112,7 @@ struct VersionsDebugView: View {
                                             MetricInline(title: "S2", value: "\(version.auditSummary?.s2Count ?? 0)")
                                         }
                                     }
-                                    Spacer()
                                 }
-                                .padding(10)
-                                .background(AppTheme.surfaceAlt.opacity(0.45), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                             }
                         }
                     }
@@ -142,7 +120,7 @@ struct VersionsDebugView: View {
             }
             .padding(22)
         }
-        .background(AppTheme.background)
+        .background(AppBackgroundView())
     }
 
     @MainActor

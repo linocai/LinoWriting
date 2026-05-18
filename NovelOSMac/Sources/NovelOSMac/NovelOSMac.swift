@@ -15,8 +15,9 @@ struct NovelOSMacApp: App {
                 .environment(chapterStore)
                 .environment(baseDocumentsStore)
                 .environment(knowledgeStore)
+                .preferredColorScheme(.light)
                 .frame(
-                    minWidth: 1180,
+                    minWidth: 900,
                     idealWidth: 1440,
                     maxWidth: .infinity,
                     minHeight: 760,
@@ -25,7 +26,8 @@ struct NovelOSMacApp: App {
                 )
         }
         .defaultSize(width: 1440, height: 900)
-        .windowToolbarStyle(.unified(showsTitle: false))
+        .windowStyle(.hiddenTitleBar)
+        .windowToolbarStyle(.unifiedCompact)
         .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(after: .saveItem) {
@@ -33,6 +35,11 @@ struct NovelOSMacApp: App {
                     routeSaveAction()
                 }
                 .keyboardShortcut("s", modifiers: .command)
+
+                Button("显示/隐藏 Inspector") {
+                    appStore.isInspectorVisible.toggle()
+                }
+                .keyboardShortcut("i", modifiers: [.command, .shift])
             }
         }
     }

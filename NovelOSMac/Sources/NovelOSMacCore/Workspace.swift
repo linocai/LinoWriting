@@ -15,7 +15,7 @@ public enum Workspace: String, CaseIterable, Identifiable, Codable, Equatable, S
         case .chapterStudio: "Chapter Studio"
         case .baseFiles: "基础文件"
         case .knowledgeMatrix: "知识矩阵"
-        case .versionsDebug: "版本记录"
+        case .versionsDebug: "版本与调试"
         case .chaptersList: "章节列表"
         case .writingSettings: "写作设置"
         }

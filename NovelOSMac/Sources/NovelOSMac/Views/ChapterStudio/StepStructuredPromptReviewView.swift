@@ -10,7 +10,7 @@ struct StepStructuredPromptReviewView: View {
                 reviewCard
                     .frame(minWidth: 620)
                 helpBlocks
-                    .frame(width: 280)
+                    .frame(width: 300)
             }
 
             VStack(alignment: .leading, spacing: 12) {
@@ -33,31 +33,40 @@ struct StepStructuredPromptReviewView: View {
                 if store.structuredPrompt == nil {
                     EmptyStateView(text: "结构化 Prompt 尚未生成。请回到第一步输入 Prompt。")
                 } else {
-                    editableTextBlock(title: "本章目标", binding: textBinding(\.chapterGoal), minHeight: 82)
-                    editableTextBlock(title: "必须发生", binding: listBinding(\.mustHappen), minHeight: 130)
-                    editableTextBlock(title: "禁止发生", binding: listBinding(\.mustNotHappen), minHeight: 130)
+                    editableTextBlock(title: "本章目标", binding: textBinding(\.chapterGoal), minHeight: 86)
+                    editableListBlock(
+                        title: "必须发生",
+                        binding: listArrayBinding(\.mustHappen),
+                        symbolName: "checkmark",
+                        tone: .green,
+                        addTitle: "新增必须发生"
+                    )
+                    editableListBlock(
+                        title: "禁止发生",
+                        binding: listArrayBinding(\.mustNotHappen),
+                        symbolName: "xmark",
+                        tone: .red,
+                        addTitle: "新增禁止发生"
+                    )
 
-                    ContentBlock("本章可用专名") {
-                        FlowLayout {
-                            ForEach(store.structuredPrompt?.allowedNamedEntities ?? []) { entity in
-                                EntityChip(text: entityLabel(entity), tone: entityTone(entity))
-                            }
-                        }
+                    PromptCard(title: "本章可用专名", badge: "chips", tone: .blue) {
+                        EntityChipGrid(entities: store.structuredPrompt?.allowedNamedEntities ?? [])
                     }
 
-                    editableTextBlock(title: "文风与叙事限制", binding: textBinding(\.narrativeStyle), minHeight: 104)
+                    editableTextBlock(title: "文风与叙事限制", binding: textBinding(\.narrativeStyle), minHeight: 108)
                 }
             }
             CardFooter {
                 Button("返回 Prompt") {
                     store.tryMove(to: .promptInput)
                 }
+                .buttonStyle(GhostButtonStyle())
                 Button("批准并生成正文") {
                     Task {
                         await store.approveStructuredPromptAndGenerateDraft()
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(BlueButtonStyle())
                 .disabled(store.structuredPrompt == nil)
             }
         }
@@ -65,32 +74,73 @@ struct StepStructuredPromptReviewView: View {
 
     private var helpBlocks: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ContentBlock("审核范围") {
-                Text("只需要确认本章目标、必须发生、禁止发生、可用专名和文风限制。")
-                    .font(.callout)
-                    .foregroundStyle(AppTheme.muted)
-            }
-            ContentBlock("本章限制") {
-                Text("系统已按基础文档筛掉无关信息，并限制角色不能越权知道尚未揭露的真相。")
-                    .font(.callout)
-                    .foregroundStyle(AppTheme.muted)
-            }
-            ContentBlock("编辑方式") {
-                Text("直接改上方文字即可；批准后会生成正文草稿。")
-                    .font(.callout)
-                    .foregroundStyle(AppTheme.muted)
-            }
+            SideNoteView(
+                title: "你审核的是结构化 Prompt",
+                text: "不是底层 Context Pack。这里只保留目标、必须发生、禁止发生、可用专名和文风限制。",
+                tone: .orange
+            )
+            SideNoteView(
+                title: "Context Compiler",
+                text: "已隐藏本章不相关人物，只把写作需要的上下文整理进当前章节。"
+            )
+            SideNoteView(
+                title: "批准后直接生成整章",
+                text: "不进入 Scene Plan，也不增加额外用户确认步骤。",
+                tone: .blue
+            )
         }
     }
 
     private func editableTextBlock(title: String, binding: Binding<String>, minHeight: CGFloat) -> some View {
-        ContentBlock(title) {
-            TextEditor(text: binding)
-                .font(.body)
-                .frame(minHeight: minHeight)
-                .padding(8)
-                .background(AppTheme.surface.opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(AppTheme.border))
+        PromptCard(title: title, badge: "可编辑", tone: .blue) {
+            SoftTextEditor(text: binding, minHeight: minHeight)
+        }
+    }
+
+    private func editableListBlock(
+        title: String,
+        binding: Binding<[String]>,
+        symbolName: String,
+        tone: PillTone,
+        addTitle: String
+    ) -> some View {
+        PromptCard(title: title, badge: "可编辑", tone: tone) {
+            VStack(alignment: .leading, spacing: 8) {
+                if binding.wrappedValue.isEmpty {
+                    Text("暂无条目")
+                        .font(.callout)
+                        .foregroundStyle(AppTheme.muted)
+                } else {
+                    ForEach(Array(binding.wrappedValue.indices), id: \.self) { index in
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: symbolName)
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(tone.palette.foreground)
+                                .frame(width: 22, height: 22)
+                                .background(tone.palette.background, in: Circle())
+                            SoftTextField(title: "条目", text: listItemBinding(binding, index: index), axis: .vertical)
+                            Button {
+                                var values = binding.wrappedValue
+                                guard values.indices.contains(index) else { return }
+                                values.remove(at: index)
+                                binding.wrappedValue = values
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .buttonStyle(GhostButtonStyle())
+                        }
+                    }
+                }
+
+                Button {
+                    var values = binding.wrappedValue
+                    values.append("")
+                    binding.wrappedValue = values
+                } label: {
+                    Label(addTitle, systemImage: "plus")
+                }
+                .buttonStyle(GhostButtonStyle())
+            }
         }
     }
 
@@ -102,28 +152,23 @@ struct StepStructuredPromptReviewView: View {
         }
     }
 
-    private func listBinding(_ keyPath: WritableKeyPath<StructuredPrompt, [String]>) -> Binding<String> {
+    private func listArrayBinding(_ keyPath: WritableKeyPath<StructuredPrompt, [String]>) -> Binding<[String]> {
         Binding {
-            store.structuredPrompt?[keyPath: keyPath].joined(separator: "\n") ?? ""
+            store.structuredPrompt?[keyPath: keyPath] ?? []
         } set: { value in
-            store.structuredPrompt?[keyPath: keyPath] = value.linesFromEditor
+            store.structuredPrompt?[keyPath: keyPath] = value
         }
     }
 
-    private func entityLabel(_ entity: AllowedEntity) -> String {
-        if let budget = entity.mentionBudget {
-            return "\(entity.name) · \(entity.activation.rawValue) \(budget)"
-        }
-        return "\(entity.name) · \(entity.activation.rawValue)"
-    }
-
-    private func entityTone(_ entity: AllowedEntity) -> PillTone {
-        switch entity.activation {
-        case .active: .green
-        case .mentionAllowed: .orange
-        case .background: .blue
-        case .lockedOut: .red
-        case .newAllowed: .purple
+    private func listItemBinding(_ binding: Binding<[String]>, index: Int) -> Binding<String> {
+        Binding {
+            guard binding.wrappedValue.indices.contains(index) else { return "" }
+            return binding.wrappedValue[index]
+        } set: { value in
+            var values = binding.wrappedValue
+            guard values.indices.contains(index) else { return }
+            values[index] = value
+            binding.wrappedValue = values
         }
     }
 }

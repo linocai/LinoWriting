@@ -65,6 +65,16 @@ public enum ActivationState: String, Codable, Equatable, Sendable {
     case background = "BACKGROUND"
     case lockedOut = "LOCKED_OUT"
     case newAllowed = "NEW_ALLOWED"
+
+    public var displayName: String {
+        switch self {
+        case .active: "本章出场"
+        case .mentionAllowed: "弱提及"
+        case .background: "背景可提"
+        case .lockedOut: "不可使用"
+        case .newAllowed: "新角色已批准"
+        }
+    }
 }
 
 public struct ActivationSummary: Codable, Equatable, Sendable {
@@ -167,6 +177,15 @@ public enum ImportanceLevel: String, Codable, CaseIterable, Identifiable, Sendab
     case critical
 
     public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .low: "低"
+        case .medium: "中"
+        case .high: "高"
+        case .critical: "关键"
+        }
+    }
 }
 
 public enum ActivationPolicy: String, Codable, CaseIterable, Identifiable, Sendable {
@@ -176,6 +195,15 @@ public enum ActivationPolicy: String, Codable, CaseIterable, Identifiable, Senda
     case manualOnly = "manual_only"
 
     public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .alwaysInContextBrief: "总是进入简报"
+        case .alwaysConsidered: "总是参与筛选"
+        case .tagMatched: "标签命中时进入"
+        case .manualOnly: "仅手动调用"
+        }
+    }
 }
 
 public struct CharacterCard: Identifiable, Codable, Equatable, Sendable {
@@ -231,6 +259,21 @@ public enum KnowledgeState: String, Codable, CaseIterable, Identifiable, Sendabl
     case stronglySuspects = "strongly_suspects"
 
     public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .known: "已知"
+        case .unknown: "未知"
+        case .suspects: "怀疑"
+        case .hinted: "被暗示"
+        case .partial: "部分知道"
+        case .mayKnow: "可能知道"
+        case .readerKnown: "读者已知"
+        case .readerUnknown: "读者未知"
+        case .authorOnly: "作者限定"
+        case .stronglySuspects: "强烈怀疑"
+        }
+    }
 }
 
 public struct MemoryFact: Identifiable, Codable, Equatable, Sendable {

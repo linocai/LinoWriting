@@ -487,7 +487,7 @@ public final class BaseDocumentsStore {
             worldBibleSections = savedSections
             characterCards = savedCharacters
             memoryFacts = savedMemory
-            statusMessage = "基础文件已保存，后台 reindex 已完成。"
+            statusMessage = "基础文件已保存，检索索引已更新。"
         } catch {
             handle(error)
         }

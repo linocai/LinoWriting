@@ -17,15 +17,18 @@ struct StepCanonPatchReviewView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
                             Text("目标 Canon v\(patch.targetCanonVersion)")
-                                .font(.headline)
+                                .font(.headline.weight(.bold))
+                                .foregroundStyle(AppTheme.text)
                             Spacer()
                             if store.chapter.status == .completed {
                                 PillView(text: "本章已完成", tone: .green)
                             }
                         }
 
-                        ForEach(patch.items) { item in
-                            patchItemView(item)
+                        VStack(alignment: .leading, spacing: 10) {
+                            ForEach(patch.items) { item in
+                                patchItemView(item)
+                            }
                         }
                     }
                 } else {
@@ -38,6 +41,7 @@ struct StepCanonPatchReviewView: View {
                         await store.savePatchForLater()
                     }
                 }
+                .buttonStyle(GhostButtonStyle())
                 .disabled(store.canonPatch == nil || store.chapter.status == .completed)
 
                 Button("确认更新，完成本章") {
@@ -45,44 +49,33 @@ struct StepCanonPatchReviewView: View {
                         await store.confirmCanonPatch()
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(BlueButtonStyle())
                 .disabled(store.canonPatch == nil || store.chapter.status == .completed)
             }
         }
     }
 
     private func patchItemView(_ item: CanonPatchItem) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 12) {
-                PillView(text: item.target.rawValue, tone: targetTone(item.target))
-                    .frame(width: 92, alignment: .leading)
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(item.title)
-                        .font(.headline)
-                    Text(item.summary)
-                        .font(.callout)
-                        .foregroundStyle(AppTheme.muted)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 12)
-                Picker("", selection: patchDecisionBinding(item.id)) {
-                    ForEach(PatchUserDecision.allCases) { decision in
-                        Text(decision.label).tag(decision)
-                    }
-                }
-                .frame(width: 108)
-            }
+        let decision = patchDecisionBinding(item.id)
 
-            if item.proposedAction == .modify {
-                TextEditor(text: patchPayloadBinding(item.id))
-                    .frame(minHeight: 86)
-                    .padding(8)
-                    .background(AppTheme.surface.opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(AppTheme.border))
+        return TimelineItemView(
+            badge: item.target.displayName,
+            title: item.title,
+            subtitle: item.summary,
+            tone: targetTone(item.target)
+        ) {
+            if decision.wrappedValue == .modify {
+                SoftTextEditor(text: patchPayloadBinding(item.id), minHeight: 86, idealHeight: 120)
             }
+        } trailing: {
+            Picker("", selection: decision) {
+                ForEach(PatchUserDecision.allCases) { option in
+                    Text(option.label).tag(option)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 186)
         }
-        .padding(12)
-        .background(AppTheme.surfaceAlt.opacity(0.45), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     private func patchDecisionBinding(_ itemID: String) -> Binding<PatchUserDecision> {
@@ -108,6 +101,17 @@ struct StepCanonPatchReviewView: View {
         case .character: .orange
         case .knowledge: .purple
         case .worldBible: .green
+        }
+    }
+}
+
+private extension CanonPatchTarget {
+    var displayName: String {
+        switch self {
+        case .memory: "Memory"
+        case .character: "Character"
+        case .knowledge: "Knowledge"
+        case .worldBible: "World Bible"
         }
     }
 }

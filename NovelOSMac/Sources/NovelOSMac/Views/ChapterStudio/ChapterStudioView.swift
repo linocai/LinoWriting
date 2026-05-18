@@ -15,22 +15,18 @@ struct ChapterStudioView: View {
                         } label: {
                             Label("导出本章", systemImage: "square.and.arrow.up")
                         }
+                        .buttonStyle(GhostButtonStyle())
                         Button {
                             store.tryMove(to: store.highestUnlockedStep)
                         } label: {
                             Label("继续当前步骤", systemImage: "arrow.right.circle")
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(PrimaryButtonStyle())
                     }
                 }
 
                 if let message = store.statusMessage {
-                    Text(message)
-                        .font(.callout.weight(.medium))
-                        .foregroundStyle(AppTheme.blue)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(AppTheme.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    StatusBanner(message: message, tone: .blue)
                 }
 
                 ChapterStepperView()
@@ -48,84 +44,114 @@ struct ChapterStudioView: View {
                     StepCanonPatchReviewView()
                 }
             }
-            .padding(22)
+            .padding(AppTheme.pagePadding)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(AppTheme.background)
+        .background(AppBackgroundView())
     }
 }
 
 struct ChapterStepperView: View {
-    @Environment(ChapterWorkflowStore.self) private var store
-
     var body: some View {
         ViewThatFits(in: .horizontal) {
-            stepperRow(flexible: true)
+            stepperPanel(flexible: true)
 
             ScrollView(.horizontal, showsIndicators: false) {
-                stepperRow(flexible: false)
+                stepperPanel(flexible: false)
                     .padding(.vertical, 2)
             }
         }
     }
 
-    private func stepperRow(flexible: Bool) -> some View {
-        HStack(spacing: 10) {
+    private func stepperPanel(flexible: Bool) -> some View {
+        HStack(spacing: 8) {
             ForEach(ChapterStep.allCases) { step in
-                stepButton(for: step, flexible: flexible)
+                ChapterStepCell(step: step, flexible: flexible)
             }
         }
+        .padding(10)
         .frame(maxWidth: flexible ? .infinity : nil, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: AppTheme.radiusXL, style: .continuous))
+        .background(Color.white.opacity(0.66), in: RoundedRectangle(cornerRadius: AppTheme.radiusXL, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.radiusXL, style: .continuous)
+                .stroke(Color.white.opacity(0.80), lineWidth: 1)
+        )
+        .shadow(color: AppTheme.shadow, radius: 22, x: 0, y: 12)
     }
+}
 
-    private func stepButton(for step: ChapterStep, flexible: Bool) -> some View {
+private struct ChapterStepCell: View {
+    @Environment(ChapterWorkflowStore.self) private var store
+
+    let step: ChapterStep
+    let flexible: Bool
+
+    @State private var isHovered = false
+
+    var body: some View {
         Button {
             store.tryMove(to: step)
         } label: {
-            VStack(alignment: .leading, spacing: 7) {
+            VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
                     Text("\(step.rawValue)")
                         .font(.caption.weight(.bold))
-                        .foregroundStyle(step == store.currentStep ? .white : numberColor(for: step))
+                        .foregroundStyle(step == store.currentStep ? .white : numberColor)
                         .frame(width: 24, height: 24)
-                        .background(numberBackground(for: step), in: Circle())
+                        .background(numberBackground, in: Circle())
                     Text(step.title)
-                        .font(.callout.weight(.semibold))
+                        .font(.system(size: 13, weight: .bold))
                         .lineLimit(1)
+                        .foregroundStyle(AppTheme.text)
                 }
                 Text(step.subtitle)
                     .font(.caption)
                     .foregroundStyle(AppTheme.muted)
                     .lineLimit(2)
             }
-            .frame(minHeight: 74, alignment: .leading)
-            .frame(width: flexible ? nil : 176, alignment: .leading)
+            .frame(minHeight: 86, alignment: .leading)
+            .frame(width: flexible ? nil : 184, alignment: .leading)
             .frame(minWidth: flexible ? 150 : nil, maxWidth: flexible ? .infinity : nil, alignment: .leading)
             .padding(12)
-            .background(stepBackground(for: step), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(stepBackground, in: RoundedRectangle(cornerRadius: AppTheme.radiusLG, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(step == store.currentStep ? AppTheme.blue.opacity(0.65) : AppTheme.border, lineWidth: 1)
+                RoundedRectangle(cornerRadius: AppTheme.radiusLG, style: .continuous)
+                    .stroke(stepBorder, lineWidth: 1)
             )
+            .shadow(color: step == store.currentStep ? AppTheme.blue.opacity(0.16) : .clear, radius: 14, x: 0, y: 8)
             .opacity(store.canMove(to: step) ? 1 : 0.48)
         }
         .buttonStyle(.plain)
         .disabled(!store.canMove(to: step))
+        .onHover { isHovered = $0 }
     }
 
-    private func numberBackground(for step: ChapterStep) -> Color {
+    private var isDone: Bool {
+        step.rawValue < store.currentStep.rawValue || step.rawValue < store.highestUnlockedStep.rawValue
+    }
+
+    private var numberBackground: Color {
         if step == store.currentStep { return AppTheme.blue }
-        if step.rawValue < store.currentStep.rawValue || step.rawValue < store.highestUnlockedStep.rawValue { return AppTheme.green.opacity(0.16) }
-        return AppTheme.surfaceAlt
+        if isDone { return AppTheme.green.opacity(0.16) }
+        return Color.black.opacity(0.05)
     }
 
-    private func numberColor(for step: ChapterStep) -> Color {
-        if step.rawValue < store.currentStep.rawValue || step.rawValue < store.highestUnlockedStep.rawValue { return AppTheme.green }
-        return AppTheme.muted
+    private var numberColor: Color {
+        isDone ? AppTheme.green : AppTheme.muted
     }
 
-    private func stepBackground(for step: ChapterStep) -> Color {
-        step == store.currentStep ? AppTheme.blue.opacity(0.08) : AppTheme.surface
+    private var stepBackground: Color {
+        if step == store.currentStep { return Color.white.opacity(0.94) }
+        if isDone { return AppTheme.green.opacity(0.08) }
+        if isHovered { return Color.white.opacity(0.60) }
+        return Color.clear
+    }
+
+    private var stepBorder: Color {
+        if step == store.currentStep { return AppTheme.blue.opacity(0.58) }
+        if isDone { return AppTheme.green.opacity(0.24) }
+        return Color.white.opacity(isHovered ? 0.72 : 0.0)
     }
 }

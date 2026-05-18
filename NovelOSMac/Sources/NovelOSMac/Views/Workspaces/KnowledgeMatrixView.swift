@@ -18,58 +18,66 @@ struct KnowledgeMatrixView: View {
                         } label: {
                             Label("新增知识条目", systemImage: "plus")
                         }
+                        .buttonStyle(GhostButtonStyle())
                         Button("保存矩阵") {
                             Task {
                                 await store.saveMatrix()
                             }
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(BlueButtonStyle())
                         .disabled(store.isSaving)
                     }
                 }
 
-                HStack(spacing: 12) {
-                    TextField("筛选事实、限制或真相状态", text: $store.filterText)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: 360)
-                    Picker("角色", selection: $store.selectedCharacterName) {
-                        Text("全部角色").tag(String?.none)
-                        ForEach(store.characterFilterOptions, id: \.self) { name in
-                            Text(name).tag(String?.some(name))
+                summaryStrip
+
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        SoftTextField("筛选事实、限制或真相状态", text: $store.filterText)
+                            .frame(maxWidth: 360)
+                        SoftPicker("角色", selection: $store.selectedCharacterName) {
+                            Text("全部角色").tag(String?.none)
+                            ForEach(store.characterFilterOptions, id: \.self) { name in
+                                Text(name).tag(String?.some(name))
+                            }
+                        }
+                        .frame(width: 190)
+                        SoftPicker("状态", selection: $store.selectedState) {
+                            Text("全部状态").tag(KnowledgeState?.none)
+                            ForEach(KnowledgeState.allCases) { state in
+                                Text(state.displayName).tag(KnowledgeState?.some(state))
+                            }
+                        }
+                        .frame(width: 220)
+                        Spacer()
+                        PillView(text: "防止开天眼", tone: .red)
+                    }
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        SoftTextField("筛选事实、限制或真相状态", text: $store.filterText)
+                        HStack(spacing: 10) {
+                            SoftPicker("角色", selection: $store.selectedCharacterName) {
+                                Text("全部角色").tag(String?.none)
+                                ForEach(store.characterFilterOptions, id: \.self) { name in
+                                    Text(name).tag(String?.some(name))
+                                }
+                            }
+                            SoftPicker("状态", selection: $store.selectedState) {
+                                Text("全部状态").tag(KnowledgeState?.none)
+                                ForEach(KnowledgeState.allCases) { state in
+                                    Text(state.displayName).tag(KnowledgeState?.some(state))
+                                }
+                            }
                         }
                     }
-                    .frame(width: 180)
-                    Picker("状态", selection: $store.selectedState) {
-                        Text("全部状态").tag(KnowledgeState?.none)
-                        ForEach(KnowledgeState.allCases) { state in
-                            Text(state.rawValue).tag(KnowledgeState?.some(state))
-                        }
-                    }
-                    .frame(width: 220)
-                    Spacer()
-                    PillView(text: "防止开天眼", tone: .red)
                 }
 
                 if let message = store.statusMessage {
-                    Text(message)
-                        .font(.callout.weight(.medium))
-                        .foregroundStyle(AppTheme.green)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(AppTheme.green.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    StatusBanner(message: message, tone: .green)
                 }
 
                 if store.isLoading || store.isSaving {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text(store.isLoading ? "加载知识矩阵中" : "保存知识矩阵中")
-                            .font(.callout)
-                            .foregroundStyle(AppTheme.muted)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(AppTheme.surfaceAlt.opacity(0.5), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    StatusBanner(message: store.isLoading ? "加载知识矩阵中" : "保存知识矩阵中", tone: .blue)
                 }
 
                 CardView {
@@ -79,49 +87,29 @@ struct KnowledgeMatrixView: View {
                     )
                     CardBody {
                         ScrollView(.horizontal) {
-                            Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
+                            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
                                 GridRow {
-                                    matrixHeader("事实 / 秘密", width: 220)
-                                    matrixHeader("作者", width: 110)
-                                    matrixHeader("读者", width: 120)
+                                    matrixHeader("事实 / 秘密", width: 240)
+                                    matrixHeader("作者", width: 126)
+                                    matrixHeader("读者", width: 126)
                                     ForEach(store.visibleCharacters, id: \.self) { name in
-                                        matrixHeader(name, width: 110)
+                                        matrixHeader(name, width: 126)
                                     }
                                     matrixHeader("允许叙述", width: 320)
+                                    matrixHeader("", width: 44)
                                 }
-                                Divider()
-                                    .gridCellColumns(6 + store.visibleCharacters.count)
 
-                                ForEach(store.filteredEntries) { entry in
+                                ForEach(Array(store.filteredEntries.enumerated()), id: \.element.id) { index, entry in
                                     GridRow(alignment: .top) {
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            TextField("事实", text: factTitleBinding(entry.id))
-                                                .textFieldStyle(.roundedBorder)
-                                                .frame(width: 220)
-                                            TextField("真相状态", text: truthStatusBinding(entry.id))
-                                                .textFieldStyle(.roundedBorder)
-                                                .frame(width: 220)
-                                        }
-                                        statePicker(authorKnowledgeBinding(entry.id), width: 130)
-                                        statePicker(readerKnowledgeBinding(entry.id), width: 130)
+                                        factCell(entry.id, isEven: index.isMultiple(of: 2))
+                                        stateCell(authorKnowledgeBinding(entry.id), isEven: index.isMultiple(of: 2))
+                                        stateCell(readerKnowledgeBinding(entry.id), isEven: index.isMultiple(of: 2))
                                         ForEach(store.visibleCharacters, id: \.self) { name in
-                                            statePicker(characterStateBinding(entry.id, characterName: name), width: 130)
+                                            stateCell(characterStateBinding(entry.id, characterName: name), isEven: index.isMultiple(of: 2))
                                         }
-                                        HStack(alignment: .top, spacing: 8) {
-                                            TextField("允许叙述", text: allowedNarrationBinding(entry.id), axis: .vertical)
-                                                .textFieldStyle(.roundedBorder)
-                                                .frame(width: 320)
-                                            Button(role: .destructive) {
-                                                Task {
-                                                    await store.deleteEntry(id: entry.id)
-                                                }
-                                            } label: {
-                                                Image(systemName: "trash")
-                                            }
-                                            .buttonStyle(.borderless)
-                                        }
+                                        narrationCell(entry.id, isEven: index.isMultiple(of: 2))
+                                        deleteCell(entry.id, isEven: index.isMultiple(of: 2))
                                     }
-                                    Divider().gridCellColumns(6 + store.visibleCharacters.count)
                                 }
                             }
                             .padding(.vertical, 2)
@@ -130,29 +118,47 @@ struct KnowledgeMatrixView: View {
                 }
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 12, alignment: .top)], alignment: .leading, spacing: 12) {
-                    ContentBlock("使用方式") {
-                        Text("用表格记录每条事实对作者、读者和角色的可见状态，方便检查叙事视角。")
-                            .font(.callout)
-                            .foregroundStyle(AppTheme.muted)
-                    }
-                    ContentBlock("章节写作") {
-                        Text("每章只会带入相关限制，当前页面负责维护完整矩阵。")
-                            .font(.callout)
-                            .foregroundStyle(AppTheme.muted)
-                    }
-                    ContentBlock("筛选建议") {
-                        Text("允许按角色和状态筛选：只看 A 知道什么、B 隐瞒什么、读者已经知道什么。")
-                            .font(.callout)
-                            .foregroundStyle(AppTheme.muted)
-                    }
+                    SideNoteView(title: "使用方式", text: "用矩阵记录每条事实对作者、读者和角色的可见状态，方便检查叙事视角。")
+                    SideNoteView(title: "章节写作", text: "每章只会带入相关限制，当前页面负责维护完整矩阵。")
+                    SideNoteView(title: "筛选建议", text: "允许按角色和状态筛选：只看 A 知道什么、B 隐瞒什么、读者已经知道什么。")
                 }
             }
-            .padding(22)
+            .padding(AppTheme.pagePadding)
         }
-        .background(AppTheme.background)
+        .background(AppBackgroundView())
         .task {
             await store.loadEntries()
         }
+    }
+
+    private var summaryStrip: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 12, alignment: .top)], alignment: .leading, spacing: 12) {
+            MatrixSummaryCard(title: "Author Only", value: "\(authorOnlyCount)", tone: .purple)
+            MatrixSummaryCard(title: "Reader Known", value: "\(readerKnownCount)", tone: .green)
+            MatrixSummaryCard(title: "A Unknown", value: "\(characterUnknownCount("A"))", tone: .neutral)
+            MatrixSummaryCard(title: "可能越界", value: "\(possibleLeakCount)", tone: possibleLeakCount > 0 ? .orange : .green)
+        }
+    }
+
+    private var authorOnlyCount: Int {
+        store.entries.filter { $0.authorKnowledge == .authorOnly || $0.truthStatus.localizedCaseInsensitiveContains("author") }.count
+    }
+
+    private var readerKnownCount: Int {
+        store.entries.filter { $0.readerKnowledge == .readerKnown }.count
+    }
+
+    private func characterUnknownCount(_ name: String) -> Int {
+        store.entries.filter { entry in
+            entry.characterKnowledge.first(where: { $0.characterName == name })?.state == .unknown
+        }.count
+    }
+
+    private var possibleLeakCount: Int {
+        store.entries.filter { entry in
+            entry.allowedNarration.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || (entry.authorKnowledge == .authorOnly && entry.readerKnowledge == .readerKnown)
+        }.count
     }
 
     private func matrixHeader(_ text: String, width: CGFloat) -> some View {
@@ -160,26 +166,51 @@ struct KnowledgeMatrixView: View {
             .font(.caption.weight(.bold))
             .foregroundStyle(AppTheme.muted)
             .frame(width: width, alignment: .leading)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 8)
+            .background(AppTheme.panelSubtle, in: RoundedRectangle(cornerRadius: AppTheme.radiusMD, style: .continuous))
     }
 
-    private func statePicker(_ selection: Binding<KnowledgeState>, width: CGFloat) -> some View {
-        Picker("", selection: selection) {
-            ForEach(KnowledgeState.allCases) { state in
-                Text(state.rawValue).tag(state)
+    private func factCell(_ id: String, isEven: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            SoftTextField(title: "事实", text: factTitleBinding(id), axis: .vertical)
+            SoftTextField(title: "真相状态", text: truthStatusBinding(id), axis: .vertical)
+        }
+        .frame(width: 240)
+        .padding(8)
+        .background(rowBackground(isEven), in: RoundedRectangle(cornerRadius: AppTheme.radiusMD, style: .continuous))
+    }
+
+    private func stateCell(_ selection: Binding<KnowledgeState>, isEven: Bool) -> some View {
+        KnowledgeStatePillPicker(state: selection)
+            .frame(width: 126)
+            .padding(8)
+            .background(rowBackground(isEven), in: RoundedRectangle(cornerRadius: AppTheme.radiusMD, style: .continuous))
+    }
+
+    private func narrationCell(_ id: String, isEven: Bool) -> some View {
+        SoftTextEditor(text: allowedNarrationBinding(id), minHeight: 44, idealHeight: 64)
+            .frame(width: 320)
+            .padding(8)
+            .background(rowBackground(isEven), in: RoundedRectangle(cornerRadius: AppTheme.radiusMD, style: .continuous))
+    }
+
+    private func deleteCell(_ id: String, isEven: Bool) -> some View {
+        Button(role: .destructive) {
+            Task {
+                await store.deleteEntry(id: id)
             }
+        } label: {
+            Image(systemName: "trash")
         }
-        .labelsHidden()
-        .frame(width: width)
-        .background(tone(for: selection.wrappedValue).color.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .buttonStyle(DangerButtonStyle())
+        .frame(width: 44)
+        .padding(8)
+        .background(rowBackground(isEven), in: RoundedRectangle(cornerRadius: AppTheme.radiusMD, style: .continuous))
     }
 
-    private func tone(for state: KnowledgeState) -> PillTone {
-        switch state {
-        case .known, .readerKnown, .stronglySuspects: .green
-        case .suspects, .hinted, .partial, .mayKnow: .orange
-        case .authorOnly: .purple
-        case .unknown, .readerUnknown: .neutral
-        }
+    private func rowBackground(_ isEven: Bool) -> Color {
+        isEven ? Color.white.opacity(0.56) : AppTheme.panelSubtle
     }
 
     private func factTitleBinding(_ id: String) -> Binding<String> {
@@ -239,5 +270,31 @@ struct KnowledgeMatrixView: View {
             guard let index = store.entries.firstIndex(where: { $0.id == id }) else { return }
             store.entries[index].allowedNarration = value
         }
+    }
+}
+
+private struct MatrixSummaryCard: View {
+    let title: String
+    let value: String
+    var tone: PillTone
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(AppTheme.muted)
+                Text(value)
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(tone.palette.foreground)
+            }
+            Spacer()
+        }
+        .padding(14)
+        .background(tone.palette.background, in: RoundedRectangle(cornerRadius: AppTheme.radiusLG, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.radiusLG, style: .continuous)
+                .stroke(tone.palette.border, lineWidth: 1)
+        )
     }
 }
