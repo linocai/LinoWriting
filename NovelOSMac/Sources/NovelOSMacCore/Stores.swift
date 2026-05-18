@@ -285,78 +285,232 @@ public final class ChapterWorkflowStore {
 @MainActor
 @Observable
 public final class BaseDocumentsStore {
+    @ObservationIgnored private let api: any BaseDocumentsAPI
+
+    public let novelID: String
     public var worldBibleSections: [WorldBibleSection]
     public var characterCards: [CharacterCard]
     public var memoryFacts: [MemoryFact]
     public var selectedBaseDocument: BaseDocumentKind = .worldBible
     public var isSaving: Bool = false
     public var isIndexing: Bool = false
+    public var isLoading: Bool = false
     public var statusMessage: String?
+    public var error: APIError?
+    public var memoryChapterFilter: String = ""
 
-    public init() {
+    public init(api: any BaseDocumentsAPI = MockBaseDocumentsAPI(), novelID: String = MockData.novel.id) {
+        self.api = api
+        self.novelID = novelID
         worldBibleSections = MockData.worldBibleSections
         characterCards = MockData.characterCards
         memoryFacts = MockData.memoryFacts
     }
 
-    public func addWorldBibleSection() {
-        worldBibleSections.append(
-            WorldBibleSection(
-                id: "wb_\(UUID().uuidString)",
-                title: "新 Section",
-                content: "",
-                tags: [],
-                importance: .medium,
-                activationPolicy: .manualOnly,
-                canonVersion: MockData.novel.currentCanonVersion ?? 12,
-                updatedAt: Date()
-            )
-        )
-        selectedBaseDocument = .worldBible
+    public var filteredMemoryFacts: [MemoryFact] {
+        let trimmed = memoryChapterFilter.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let chapterNo = Int(trimmed) else {
+            return memoryFacts
+        }
+        return memoryFacts.filter { $0.chapterNo == chapterNo }
     }
 
-    public func addCharacter() {
-        characterCards.append(
-            CharacterCard(
-                id: "char_\(UUID().uuidString)",
-                name: "新人物",
-                aliases: [],
-                role: "待定",
-                stableTraits: [],
-                currentState: "",
-                dialogueStyle: "",
-                relationships: [],
-                forbiddenBehavior: [],
-                lastActiveChapterNo: nil,
-                canonVersion: MockData.novel.currentCanonVersion ?? 12
-            )
-        )
-        selectedBaseDocument = .characterCards
+    public func loadDocuments(force: Bool = false) async {
+        isLoading = true
+        error = nil
+        defer { isLoading = false }
+
+        do {
+            async let worldBible = api.getWorldBibleSections(novelID: novelID)
+            async let characters = api.getCharacterCards(novelID: novelID)
+            async let memory = api.getMemoryFacts(novelID: novelID)
+            worldBibleSections = try await worldBible
+            characterCards = try await characters
+            memoryFacts = try await memory
+            statusMessage = "基础文件已加载。"
+        } catch {
+            handle(error)
+        }
     }
 
-    public func addMemoryFact() {
-        memoryFacts.append(
-            MemoryFact(
-                id: "mem_\(UUID().uuidString)",
-                chapterNo: MockData.chapter.chapterNo,
-                factType: "event",
-                summary: "",
-                participants: [],
-                location: nil,
-                evidence: "手动添加",
-                canonStatus: "confirmed",
-                canonVersion: MockData.novel.currentCanonVersion ?? 12
+    public func addWorldBibleSection() async {
+        isSaving = true
+        error = nil
+        defer { isSaving = false }
+
+        do {
+            let created = try await api.createWorldBibleSection(
+                WorldBibleSection(
+                    id: "wb_\(UUID().uuidString)",
+                    title: "新 Section",
+                    content: "",
+                    tags: [],
+                    importance: .medium,
+                    activationPolicy: .manualOnly,
+                    canonVersion: MockData.novel.currentCanonVersion ?? 12,
+                    updatedAt: Date()
+                ),
+                novelID: novelID
             )
-        )
-        selectedBaseDocument = .memory
+            worldBibleSections.append(created)
+            selectedBaseDocument = .worldBible
+            statusMessage = "World Bible Section 已新增。"
+        } catch {
+            handle(error)
+        }
     }
 
-    public func saveChanges() {
+    public func addCharacter() async {
+        isSaving = true
+        error = nil
+        defer { isSaving = false }
+
+        do {
+            let created = try await api.createCharacterCard(
+                CharacterCard(
+                    id: "char_\(UUID().uuidString)",
+                    name: "新人物",
+                    aliases: [],
+                    role: "待定",
+                    stableTraits: [],
+                    currentState: "",
+                    dialogueStyle: "",
+                    relationships: [],
+                    forbiddenBehavior: [],
+                    lastActiveChapterNo: nil,
+                    canonVersion: MockData.novel.currentCanonVersion ?? 12
+                ),
+                novelID: novelID
+            )
+            characterCards.append(created)
+            selectedBaseDocument = .characterCards
+            statusMessage = "人物卡已新增。"
+        } catch {
+            handle(error)
+        }
+    }
+
+    public func addMemoryFact() async {
+        isSaving = true
+        error = nil
+        defer { isSaving = false }
+
+        do {
+            let created = try await api.createMemoryFact(
+                MemoryFact(
+                    id: "mem_\(UUID().uuidString)",
+                    chapterNo: MockData.chapter.chapterNo,
+                    factType: "event",
+                    summary: "",
+                    participants: [],
+                    location: nil,
+                    evidence: "手动添加",
+                    canonStatus: "confirmed",
+                    canonVersion: MockData.novel.currentCanonVersion ?? 12
+                ),
+                novelID: novelID
+            )
+            memoryFacts.append(created)
+            selectedBaseDocument = .memory
+            statusMessage = "Memory fact 已新增。"
+        } catch {
+            handle(error)
+        }
+    }
+
+    public func addRelationship(to characterID: String) {
+        guard let index = characterCards.firstIndex(where: { $0.id == characterID }) else { return }
+        characterCards[index].relationships.append(
+            CharacterRelationship(
+                id: "rel_\(UUID().uuidString)",
+                targetCharacterName: "关联人物",
+                relationshipSummary: "",
+                currentTension: nil,
+                lastChangedChapterNo: MockData.chapter.chapterNo
+            )
+        )
+    }
+
+    public func deleteWorldBibleSection(id: String) async {
+        isSaving = true
+        error = nil
+        defer { isSaving = false }
+
+        do {
+            try await api.deleteWorldBibleSection(sectionID: id, novelID: novelID)
+            worldBibleSections.removeAll { $0.id == id }
+            statusMessage = "World Bible Section 已删除。"
+        } catch {
+            handle(error)
+        }
+    }
+
+    public func deleteCharacter(id: String) async {
+        isSaving = true
+        error = nil
+        defer { isSaving = false }
+
+        do {
+            try await api.deleteCharacterCard(characterID: id, novelID: novelID)
+            characterCards.removeAll { $0.id == id }
+            statusMessage = "人物卡已删除。"
+        } catch {
+            handle(error)
+        }
+    }
+
+    public func deleteMemoryFact(id: String) async {
+        isSaving = true
+        error = nil
+        defer { isSaving = false }
+
+        do {
+            try await api.deleteMemoryFact(factID: id, novelID: novelID)
+            memoryFacts.removeAll { $0.id == id }
+            statusMessage = "Memory fact 已删除。"
+        } catch {
+            handle(error)
+        }
+    }
+
+    public func saveChanges() async {
         isSaving = true
         isIndexing = true
-        statusMessage = "基础文件已保存，后台 reindex 已完成。"
-        isSaving = false
-        isIndexing = false
+        error = nil
+        defer {
+            isSaving = false
+            isIndexing = false
+        }
+
+        do {
+            var savedSections: [WorldBibleSection] = []
+            for section in worldBibleSections {
+                savedSections.append(try await api.updateWorldBibleSection(section, novelID: novelID))
+            }
+
+            var savedCharacters: [CharacterCard] = []
+            for card in characterCards {
+                savedCharacters.append(try await api.updateCharacterCard(card, novelID: novelID))
+            }
+
+            var savedMemory: [MemoryFact] = []
+            for fact in memoryFacts {
+                savedMemory.append(try await api.updateMemoryFact(fact, novelID: novelID))
+            }
+
+            worldBibleSections = savedSections
+            characterCards = savedCharacters
+            memoryFacts = savedMemory
+            statusMessage = "基础文件已保存，后台 reindex 已完成。"
+        } catch {
+            handle(error)
+        }
+    }
+
+    private func handle(_ error: Error) {
+        let apiError = error as? APIError ?? APIError.transport(String(describing: error))
+        self.error = apiError
+        statusMessage = apiError.userMessage
     }
 }
 

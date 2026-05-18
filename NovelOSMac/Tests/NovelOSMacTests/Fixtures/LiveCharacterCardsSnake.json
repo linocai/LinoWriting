@@ -1,0 +1,23 @@
+[
+  {
+    "id": "char_A",
+    "name": "A",
+    "aliases": [],
+    "role": "主角",
+    "stable_traits": ["克制", "不轻易承认恐惧"],
+    "current_state": "对 B 的怀疑加深。",
+    "dialogue_style": "短句，少解释。",
+    "relationships": [
+      {
+        "id": "rel_A_B",
+        "target_character_name": "B",
+        "relationship_summary": "信任破裂但仍有依赖。",
+        "current_tension": "A 开始主动试探 B。",
+        "last_changed_chapter_no": 3
+      }
+    ],
+    "forbidden_behavior": ["不能突然全知旧案真相"],
+    "last_active_chapter_no": 4,
+    "canon_version": 12
+  }
+]

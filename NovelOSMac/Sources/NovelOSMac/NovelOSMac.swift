@@ -5,7 +5,7 @@ import SwiftUI
 struct NovelOSMacApp: App {
     @State private var appStore = AppStore()
     @State private var chapterStore = ChapterWorkflowStore(api: AppEnvironment.chapterWorkflowAPI)
-    @State private var baseDocumentsStore = BaseDocumentsStore()
+    @State private var baseDocumentsStore = BaseDocumentsStore(api: AppEnvironment.baseDocumentsAPI)
     @State private var knowledgeStore = KnowledgeMatrixStore()
 
     var body: some Scene {
@@ -32,7 +32,9 @@ struct NovelOSMacApp: App {
         case .chapterStudio:
             chapterStore.saveCurrentDraftVersion()
         case .baseFiles:
-            baseDocumentsStore.saveChanges()
+            Task {
+                await baseDocumentsStore.saveChanges()
+            }
         case .knowledgeMatrix:
             knowledgeStore.saveMatrix()
         case .versionsDebug, .chaptersList, .writingSettings:

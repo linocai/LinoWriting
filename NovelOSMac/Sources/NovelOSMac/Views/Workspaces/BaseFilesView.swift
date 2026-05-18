@@ -13,14 +13,19 @@ struct BaseFilesView: View {
                 TopBarView(kicker: "基础文件 · 可手动编辑", title: "World Bible、人物卡、Memory 是可编辑资产") {
                     HStack(spacing: 10) {
                         Button {
-                            addCurrentKind()
+                            Task {
+                                await addCurrentKind()
+                            }
                         } label: {
                             Label(addButtonTitle, systemImage: "plus")
                         }
                         Button("保存修改") {
-                            store.saveChanges()
+                            Task {
+                                await store.saveChanges()
+                            }
                         }
                         .buttonStyle(.borderedProminent)
+                        .disabled(store.isSaving)
                     }
                 }
 
@@ -31,6 +36,19 @@ struct BaseFilesView: View {
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
                         .background(AppTheme.green.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+
+                if store.isLoading || store.isSaving || store.isIndexing {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text(store.isIndexing ? "后台 reindex 中" : "同步基础文件中")
+                            .font(.callout)
+                            .foregroundStyle(AppTheme.muted)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(AppTheme.surfaceAlt.opacity(0.5), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
 
                 HStack(alignment: .top, spacing: 16) {
@@ -66,6 +84,9 @@ struct BaseFilesView: View {
             .padding(22)
         }
         .background(AppTheme.background)
+        .task {
+            await store.loadDocuments()
+        }
     }
 
     @ViewBuilder
@@ -93,6 +114,16 @@ struct BaseFilesView: View {
             CardBody {
                 ForEach($store.worldBibleSections) { $section in
                     ContentBlock(section.title.isEmpty ? "未命名 Section" : section.title) {
+                        HStack {
+                            Spacer()
+                            Button(role: .destructive) {
+                                Task {
+                                    await store.deleteWorldBibleSection(id: section.id)
+                                }
+                            } label: {
+                                Label("删除", systemImage: "trash")
+                            }
+                        }
                         TextField("Section 标题", text: $section.title)
                             .textFieldStyle(.roundedBorder)
                         TextEditor(text: $section.content)
@@ -135,13 +166,25 @@ struct BaseFilesView: View {
                 subtitle: "人物关系合并在人物卡里，不单独做 Relationship Graph。"
             ) {
                 Button("新增人物") {
-                    store.addCharacter()
+                    Task {
+                        await store.addCharacter()
+                    }
                 }
             }
             CardBody {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 12, alignment: .top)], alignment: .leading, spacing: 12) {
                     ForEach($store.characterCards) { $card in
                         ContentBlock(card.name) {
+                            HStack {
+                                Spacer()
+                                Button(role: .destructive) {
+                                    Task {
+                                        await store.deleteCharacter(id: card.id)
+                                    }
+                                } label: {
+                                    Label("删除", systemImage: "trash")
+                                }
+                            }
                             TextField("姓名", text: $card.name)
                                 .textFieldStyle(.roundedBorder)
                             TextField("角色", text: $card.role)
@@ -159,10 +202,27 @@ struct BaseFilesView: View {
                             Text("人物关系")
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(AppTheme.muted)
-                            ForEach(card.relationships) { relation in
-                                Text("\(relation.targetCharacterName)：\(relation.relationshipSummary)")
-                                    .font(.caption)
-                                    .foregroundStyle(AppTheme.muted)
+                            ForEach($card.relationships) { $relation in
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack {
+                                        TextField("关联人物", text: $relation.targetCharacterName)
+                                            .textFieldStyle(.roundedBorder)
+                                        TextField("紧张关系", text: Binding {
+                                            relation.currentTension ?? ""
+                                        } set: { relation.currentTension = $0.isEmpty ? nil : $0 })
+                                        .textFieldStyle(.roundedBorder)
+                                    }
+                                    TextEditor(text: $relation.relationshipSummary)
+                                        .frame(minHeight: 54)
+                                        .padding(6)
+                                        .background(AppTheme.surface.opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(AppTheme.border))
+                                }
+                            }
+                            Button {
+                                store.addRelationship(to: card.id)
+                            } label: {
+                                Label("新增关系", systemImage: "plus")
                             }
                         }
                     }
@@ -180,35 +240,69 @@ struct BaseFilesView: View {
                 subtitle: "记录已经发生的故事历史，支持手动修订。"
             ) {
                 Button("新增事实") {
-                    store.addMemoryFact()
+                    Task {
+                        await store.addMemoryFact()
+                    }
                 }
             }
             CardBody {
+                HStack {
+                    TextField("按章节号筛选", text: $store.memoryChapterFilter)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: 180)
+                    Text("当前显示 \(store.filteredMemoryFacts.count) 条")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.muted)
+                    Spacer()
+                }
                 ForEach($store.memoryFacts) { $fact in
-                    ContentBlock("第 \(fact.chapterNo) 章 · \(fact.factType)") {
-                        HStack {
-                            TextField("类型", text: $fact.factType)
+                    if memoryFactVisible(fact) {
+                        ContentBlock("第 \(fact.chapterNo) 章 · \(fact.factType)") {
+                            HStack {
+                                Spacer()
+                                Button(role: .destructive) {
+                                    Task {
+                                        await store.deleteMemoryFact(id: fact.id)
+                                    }
+                                } label: {
+                                    Label("删除", systemImage: "trash")
+                                }
+                            }
+                            HStack {
+                                Stepper("第 \(fact.chapterNo) 章", value: $fact.chapterNo, in: 1...999)
+                                TextField("类型", text: $fact.factType)
+                                    .textFieldStyle(.roundedBorder)
+                                TextField("地点", text: Binding {
+                                    fact.location ?? ""
+                                } set: { fact.location = $0.isEmpty ? nil : $0 })
                                 .textFieldStyle(.roundedBorder)
-                            TextField("地点", text: Binding {
-                                fact.location ?? ""
-                            } set: { fact.location = $0.isEmpty ? nil : $0 })
-                            .textFieldStyle(.roundedBorder)
-                        }
-                        TextEditor(text: $fact.summary)
-                            .frame(minHeight: 82)
-                            .padding(8)
-                            .background(AppTheme.surface.opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(AppTheme.border))
-                        HStack {
-                            TextField("证据", text: $fact.evidence)
-                                .textFieldStyle(.roundedBorder)
-                            TextField("状态", text: $fact.canonStatus)
-                                .textFieldStyle(.roundedBorder)
+                            }
+                            TextEditor(text: $fact.summary)
+                                .frame(minHeight: 82)
+                                .padding(8)
+                                .background(AppTheme.surface.opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: 8).stroke(AppTheme.border))
+                            HStack {
+                                TextField("参与人物，用逗号分隔", text: stringArrayCommaBinding($fact.participants))
+                                    .textFieldStyle(.roundedBorder)
+                                TextField("证据", text: $fact.evidence)
+                                    .textFieldStyle(.roundedBorder)
+                                TextField("状态", text: $fact.canonStatus)
+                                    .textFieldStyle(.roundedBorder)
+                            }
                         }
                     }
                 }
             }
         }
+    }
+
+    private func memoryFactVisible(_ fact: MemoryFact) -> Bool {
+        let filter = store.memoryChapterFilter.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !filter.isEmpty, let chapterNo = Int(filter) else {
+            return true
+        }
+        return fact.chapterNo == chapterNo
     }
 
     private var addButtonTitle: String {
@@ -219,11 +313,14 @@ struct BaseFilesView: View {
         }
     }
 
-    private func addCurrentKind() {
+    private func addCurrentKind() async {
         switch store.selectedBaseDocument {
-        case .worldBible: store.addWorldBibleSection()
-        case .characterCards: store.addCharacter()
-        case .memory: store.addMemoryFact()
+        case .worldBible:
+            await store.addWorldBibleSection()
+        case .characterCards:
+            await store.addCharacter()
+        case .memory:
+            await store.addMemoryFact()
         }
     }
 
@@ -243,6 +340,17 @@ struct BaseFilesView: View {
             values.wrappedValue.joined(separator: "\n")
         } set: { value in
             values.wrappedValue = value.linesFromEditor
+        }
+    }
+
+    private func stringArrayCommaBinding(_ values: Binding<[String]>) -> Binding<String> {
+        Binding {
+            values.wrappedValue.joined(separator: ", ")
+        } set: { value in
+            values.wrappedValue = value
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
         }
     }
 }

@@ -1,0 +1,12 @@
+[
+  {
+    "id": "wb_style",
+    "title": "叙事基调与文风",
+    "content": "整体冷静、克制，避免夸张情绪宣泄。",
+    "tags": ["style", "tone"],
+    "importance": "high",
+    "activation_policy": "always_in_context_brief",
+    "canon_version": 12,
+    "updated_at": 800000000
+  }
+]

@@ -1,6 +1,6 @@
 import Foundation
 
-public actor APIClient: ChapterWorkflowAPI {
+public actor APIClient: ChapterWorkflowAPI, BaseDocumentsAPI {
     private let baseURL: URL
     private let session: URLSession
 
@@ -51,6 +51,54 @@ public actor APIClient: ChapterWorkflowAPI {
 
     public func confirmCanonUpdatePatch(chapterID: String) async throws {
         try await perform(Endpoint.confirmCanonUpdatePatch(chapterID: chapterID))
+    }
+
+    public func getWorldBibleSections(novelID: String) async throws -> [WorldBibleSection] {
+        try await perform(Endpoint.getWorldBibleSections(novelID: novelID))
+    }
+
+    public func createWorldBibleSection(_ section: WorldBibleSection, novelID: String) async throws -> WorldBibleSection {
+        try await perform(try Endpoint.createWorldBibleSection(novelID: novelID, section: section))
+    }
+
+    public func updateWorldBibleSection(_ section: WorldBibleSection, novelID: String) async throws -> WorldBibleSection {
+        try await perform(try Endpoint.updateWorldBibleSection(novelID: novelID, section: section))
+    }
+
+    public func deleteWorldBibleSection(sectionID: String, novelID: String) async throws {
+        try await perform(Endpoint.deleteWorldBibleSection(novelID: novelID, sectionID: sectionID))
+    }
+
+    public func getCharacterCards(novelID: String) async throws -> [CharacterCard] {
+        try await perform(Endpoint.getCharacterCards(novelID: novelID))
+    }
+
+    public func createCharacterCard(_ card: CharacterCard, novelID: String) async throws -> CharacterCard {
+        try await perform(try Endpoint.createCharacterCard(novelID: novelID, card: card))
+    }
+
+    public func updateCharacterCard(_ card: CharacterCard, novelID: String) async throws -> CharacterCard {
+        try await perform(try Endpoint.updateCharacterCard(novelID: novelID, card: card))
+    }
+
+    public func deleteCharacterCard(characterID: String, novelID: String) async throws {
+        try await perform(Endpoint.deleteCharacterCard(novelID: novelID, characterID: characterID))
+    }
+
+    public func getMemoryFacts(novelID: String) async throws -> [MemoryFact] {
+        try await perform(Endpoint.getMemoryFacts(novelID: novelID))
+    }
+
+    public func createMemoryFact(_ fact: MemoryFact, novelID: String) async throws -> MemoryFact {
+        try await perform(try Endpoint.createMemoryFact(novelID: novelID, fact: fact))
+    }
+
+    public func updateMemoryFact(_ fact: MemoryFact, novelID: String) async throws -> MemoryFact {
+        try await perform(try Endpoint.updateMemoryFact(novelID: novelID, fact: fact))
+    }
+
+    public func deleteMemoryFact(factID: String, novelID: String) async throws {
+        try await perform(Endpoint.deleteMemoryFact(novelID: novelID, factID: factID))
     }
 
     private func perform(_ endpoint: Endpoint) async throws {

@@ -4,6 +4,7 @@ public enum HTTPMethod: String, Codable, Equatable, Sendable {
     case get = "GET"
     case post = "POST"
     case patch = "PATCH"
+    case delete = "DELETE"
 }
 
 public struct Endpoint: Equatable, Sendable {
@@ -47,6 +48,54 @@ public struct Endpoint: Equatable, Sendable {
 }
 
 public extension Endpoint {
+    static func getWorldBibleSections(novelID: String) -> Endpoint {
+        Endpoint(method: .get, path: "/api/novels/\(novelID)/world-bible")
+    }
+
+    static func createWorldBibleSection(novelID: String, section: WorldBibleSection) throws -> Endpoint {
+        try json(.post, "/api/novels/\(novelID)/world-bible/sections", section)
+    }
+
+    static func updateWorldBibleSection(novelID: String, section: WorldBibleSection) throws -> Endpoint {
+        try json(.patch, "/api/novels/\(novelID)/world-bible/sections/\(section.id)", section)
+    }
+
+    static func deleteWorldBibleSection(novelID: String, sectionID: String) -> Endpoint {
+        Endpoint(method: .delete, path: "/api/novels/\(novelID)/world-bible/sections/\(sectionID)")
+    }
+
+    static func getCharacterCards(novelID: String) -> Endpoint {
+        Endpoint(method: .get, path: "/api/novels/\(novelID)/characters")
+    }
+
+    static func createCharacterCard(novelID: String, card: CharacterCard) throws -> Endpoint {
+        try json(.post, "/api/novels/\(novelID)/characters", card)
+    }
+
+    static func updateCharacterCard(novelID: String, card: CharacterCard) throws -> Endpoint {
+        try json(.patch, "/api/novels/\(novelID)/characters/\(card.id)", card)
+    }
+
+    static func deleteCharacterCard(novelID: String, characterID: String) -> Endpoint {
+        Endpoint(method: .delete, path: "/api/novels/\(novelID)/characters/\(characterID)")
+    }
+
+    static func getMemoryFacts(novelID: String) -> Endpoint {
+        Endpoint(method: .get, path: "/api/novels/\(novelID)/memory")
+    }
+
+    static func createMemoryFact(novelID: String, fact: MemoryFact) throws -> Endpoint {
+        try json(.post, "/api/novels/\(novelID)/memory", fact)
+    }
+
+    static func updateMemoryFact(novelID: String, fact: MemoryFact) throws -> Endpoint {
+        try json(.patch, "/api/novels/\(novelID)/memory/\(fact.id)", fact)
+    }
+
+    static func deleteMemoryFact(novelID: String, factID: String) -> Endpoint {
+        Endpoint(method: .delete, path: "/api/novels/\(novelID)/memory/\(factID)")
+    }
+
     static func submitUserPrompt(chapterID: String, prompt: String) throws -> Endpoint {
         try json(.post, "/api/chapters/\(chapterID)/user-prompt", UserPromptRequest(prompt: prompt))
     }

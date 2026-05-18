@@ -1,0 +1,13 @@
+[
+  {
+    "id": "mem_001",
+    "chapter_no": 3,
+    "fact_type": "event",
+    "summary": "A 已经怀疑 B 隐瞒旧案。",
+    "participants": ["A", "B"],
+    "location": null,
+    "evidence": "第 3 章中段",
+    "canon_status": "confirmed",
+    "canon_version": 12
+  }
+]

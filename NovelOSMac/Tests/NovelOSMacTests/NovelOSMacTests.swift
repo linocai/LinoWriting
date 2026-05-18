@@ -145,6 +145,110 @@ import Foundation
     #expect(patch.items[0].proposedAction == .accept)
 }
 
+@MainActor
+@Test func baseDocumentsStoreLoadsCreatesSavesAndDeletes() async throws {
+    let api = MockBaseDocumentsAPI()
+    let store = BaseDocumentsStore(api: api)
+
+    await store.loadDocuments(force: true)
+    #expect(store.worldBibleSections.count == MockData.worldBibleSections.count)
+    #expect(store.characterCards.count == MockData.characterCards.count)
+    #expect(store.memoryFacts.count == MockData.memoryFacts.count)
+
+    await store.addWorldBibleSection()
+    await store.addCharacter()
+    await store.addMemoryFact()
+    #expect(store.worldBibleSections.count == MockData.worldBibleSections.count + 1)
+    #expect(store.characterCards.count == MockData.characterCards.count + 1)
+    #expect(store.memoryFacts.count == MockData.memoryFacts.count + 1)
+
+    let sectionID = try #require(store.worldBibleSections.last?.id)
+    store.worldBibleSections[store.worldBibleSections.count - 1].title = "测试 Section"
+    let characterID = try #require(store.characterCards.last?.id)
+    store.characterCards[store.characterCards.count - 1].name = "测试人物"
+    store.addRelationship(to: characterID)
+    let factID = try #require(store.memoryFacts.last?.id)
+    store.memoryFacts[store.memoryFacts.count - 1].summary = "测试事实"
+    await store.saveChanges()
+    #expect(store.statusMessage == "基础文件已保存，后台 reindex 已完成。")
+
+    await store.deleteWorldBibleSection(id: sectionID)
+    await store.deleteCharacter(id: characterID)
+    await store.deleteMemoryFact(id: factID)
+    #expect(!store.worldBibleSections.contains(where: { $0.id == sectionID }))
+    #expect(!store.characterCards.contains(where: { $0.id == characterID }))
+    #expect(!store.memoryFacts.contains(where: { $0.id == factID }))
+}
+
+@Test func mockBaseDocumentsAPIRoundTripsResources() async throws {
+    let api = MockBaseDocumentsAPI(worldBibleSections: [], characterCards: [], memoryFacts: [])
+    let novelID = MockData.novel.id
+
+    let section = try await api.createWorldBibleSection(MockData.worldBibleSections[0], novelID: novelID)
+    var sections = try await api.getWorldBibleSections(novelID: novelID)
+    #expect(sections.map(\.id) == [section.id])
+    var updatedSection = section
+    updatedSection.title = "更新后的 Section"
+    _ = try await api.updateWorldBibleSection(updatedSection, novelID: novelID)
+    sections = try await api.getWorldBibleSections(novelID: novelID)
+    #expect(sections[0].title == "更新后的 Section")
+    try await api.deleteWorldBibleSection(sectionID: section.id, novelID: novelID)
+    #expect(try await api.getWorldBibleSections(novelID: novelID) == [])
+
+    let character = try await api.createCharacterCard(MockData.characterCards[0], novelID: novelID)
+    var updatedCharacter = character
+    updatedCharacter.currentState = "已更新"
+    _ = try await api.updateCharacterCard(updatedCharacter, novelID: novelID)
+    #expect(try await api.getCharacterCards(novelID: novelID).first?.currentState == "已更新")
+    try await api.deleteCharacterCard(characterID: character.id, novelID: novelID)
+    #expect(try await api.getCharacterCards(novelID: novelID).isEmpty)
+
+    let fact = try await api.createMemoryFact(MockData.memoryFacts[0], novelID: novelID)
+    var updatedFact = fact
+    updatedFact.summary = "已更新事实"
+    _ = try await api.updateMemoryFact(updatedFact, novelID: novelID)
+    #expect(try await api.getMemoryFacts(novelID: novelID).first?.summary == "已更新事实")
+    try await api.deleteMemoryFact(factID: fact.id, novelID: novelID)
+    #expect(try await api.getMemoryFacts(novelID: novelID).isEmpty)
+}
+
+@Test func baseDocumentEndpointsConstructExpectedRequests() throws {
+    let novelID = "novel_001"
+
+    let worldGet = Endpoint.getWorldBibleSections(novelID: novelID)
+    #expect(worldGet.method == .get)
+    #expect(worldGet.path == "/api/novels/novel_001/world-bible")
+
+    let worldPatch = try Endpoint.updateWorldBibleSection(novelID: novelID, section: MockData.worldBibleSections[0])
+    #expect(worldPatch.method == .patch)
+    #expect(worldPatch.path == "/api/novels/novel_001/world-bible/sections/wb_style")
+    let worldPatchJSON = String(data: try #require(worldPatch.body), encoding: .utf8) ?? ""
+    #expect(worldPatchJSON.contains("activation_policy"))
+
+    let characterPost = try Endpoint.createCharacterCard(novelID: novelID, card: MockData.characterCards[0])
+    #expect(characterPost.method == .post)
+    #expect(characterPost.path == "/api/novels/novel_001/characters")
+    let characterJSON = String(data: try #require(characterPost.body), encoding: .utf8) ?? ""
+    #expect(characterJSON.contains("stable_traits"))
+    #expect(characterJSON.contains("target_character_name"))
+
+    let memoryDelete = Endpoint.deleteMemoryFact(novelID: novelID, factID: "mem_001")
+    #expect(memoryDelete.method == .delete)
+    #expect(memoryDelete.path == "/api/novels/novel_001/memory/mem_001")
+}
+
+@Test func liveBaseDocumentsSnakeCaseFixturesDecode() throws {
+    let sections = try decodeLiveFixture("LiveWorldBibleSectionsSnake", as: [WorldBibleSection].self)
+    let characters = try decodeLiveFixture("LiveCharacterCardsSnake", as: [CharacterCard].self)
+    let memory = try decodeLiveFixture("LiveMemoryFactsSnake", as: [MemoryFact].self)
+
+    #expect(sections[0].activationPolicy == .alwaysInContextBrief)
+    #expect(characters[0].relationships[0].targetCharacterName == "B")
+    #expect(characters[0].forbiddenBehavior.contains("不能突然全知旧案真相"))
+    #expect(memory[0].chapterNo == 3)
+    #expect(memory[0].canonStatus == "confirmed")
+}
+
 private func decodeFixture<T: Decodable>(_ name: String, as type: T.Type) throws -> T {
     let url = try #require(Bundle.module.url(forResource: name, withExtension: "json"))
     let data = try Data(contentsOf: url)
