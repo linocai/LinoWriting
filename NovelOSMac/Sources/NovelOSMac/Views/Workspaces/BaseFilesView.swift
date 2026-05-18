@@ -42,7 +42,7 @@ struct BaseFilesView: View {
                     HStack(spacing: 8) {
                         ProgressView()
                             .controlSize(.small)
-                        Text(store.isIndexing ? "后台 reindex 中" : "同步基础文件中")
+                        Text(store.isIndexing ? "正在更新索引" : "同步基础文件中")
                             .font(.callout)
                             .foregroundStyle(AppTheme.muted)
                     }
@@ -148,8 +148,8 @@ struct BaseFilesView: View {
                     }
                 }
 
-                ContentBlock("不要让用户管理向量") {
-                    Text("保存 Section 时后台自动 reindex；第一轮 Mock 只显示“已保存 / 已索引”的状态。")
+                ContentBlock("索引状态") {
+                    Text("保存后会自动更新检索索引；完成后显示已保存状态。")
                         .font(.callout)
                         .foregroundStyle(AppTheme.muted)
                 }

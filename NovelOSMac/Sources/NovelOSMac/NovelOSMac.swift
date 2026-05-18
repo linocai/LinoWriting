@@ -9,14 +9,24 @@ struct NovelOSMacApp: App {
     @State private var knowledgeStore = KnowledgeMatrixStore(api: AppEnvironment.knowledgeMatrixAPI)
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup("NovelOSMac") {
             RootShellView()
                 .environment(appStore)
                 .environment(chapterStore)
                 .environment(baseDocumentsStore)
                 .environment(knowledgeStore)
-                .frame(minWidth: 1180, minHeight: 760)
+                .frame(
+                    minWidth: 1180,
+                    idealWidth: 1440,
+                    maxWidth: .infinity,
+                    minHeight: 760,
+                    idealHeight: 900,
+                    maxHeight: .infinity
+                )
         }
+        .defaultSize(width: 1440, height: 900)
+        .windowToolbarStyle(.unified(showsTitle: false))
+        .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(after: .saveItem) {
                 Button("保存") {

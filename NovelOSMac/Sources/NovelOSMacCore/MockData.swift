@@ -386,10 +386,10 @@ public enum MockData {
     """
 
     public static let agentRuns: [AgentRun] = [
-        AgentRun(id: "run_001", agentName: "Intent Parser", summary: "识别 A/B/C、旧码头、旧案、冷感基调。", status: "pass", timestampLabel: "12:01"),
-        AgentRun(id: "run_002", agentName: "Context Compiler", summary: "生成 allowed names，隐藏非本章人物。", status: "pass", timestampLabel: "12:02"),
-        AgentRun(id: "run_003", agentName: "Prompt Expander", summary: "生成结构化 Prompt。", status: "user approved", timestampLabel: "12:04"),
-        AgentRun(id: "run_004", agentName: "Audit Agents", summary: "S0=0，S1=2，S2=1。", status: "suggest", timestampLabel: "12:10")
+        AgentRun(id: "run_001", agentName: "章节意图识别", summary: "识别 A/B/C、旧码头、旧案、冷感基调。", status: "pass", timestampLabel: "12:01"),
+        AgentRun(id: "run_002", agentName: "上下文整理", summary: "整理本章可用专名，排除无关人物。", status: "pass", timestampLabel: "12:02"),
+        AgentRun(id: "run_003", agentName: "章节指令整理", summary: "生成结构化 Prompt。", status: "user approved", timestampLabel: "12:04"),
+        AgentRun(id: "run_004", agentName: "正文检查", summary: "S0=0，S1=2，S2=1。", status: "suggest", timestampLabel: "12:10")
     ]
 
     public static let chapterVersions: [ChapterVersionSnapshot] = [

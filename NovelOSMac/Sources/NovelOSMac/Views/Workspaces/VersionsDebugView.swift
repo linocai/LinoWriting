@@ -11,13 +11,13 @@ struct VersionsDebugView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                TopBarView(kicker: "版本与调试 · 高级区", title: "所有后台细节都留痕，但不进入主流程") {
+                TopBarView(kicker: "版本记录 · 高级区", title: "生成记录会留痕，但不打扰写作流程") {
                     HStack(spacing: 10) {
-                        PillView(text: "Debug Only", tone: .orange)
+                        PillView(text: "高级记录", tone: .orange)
                         Button {
-                            exportDebugLog()
+                            exportRunLog()
                         } label: {
-                            Label("导出日志", systemImage: "square.and.arrow.up")
+                            Label("导出记录", systemImage: "square.and.arrow.up")
                         }
                     }
                 }
@@ -31,27 +31,44 @@ struct VersionsDebugView: View {
                         .background((exportIsError ? AppTheme.red : AppTheme.green).opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
 
-                HStack(alignment: .top, spacing: 16) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 360), spacing: 16, alignment: .top)], alignment: .leading, spacing: 16) {
                     CardView {
                         CardHeader(
-                            title: "Context Pack 快照",
-                            subtitle: "给开发和排错用，不需要用户在主流程审核。"
+                            title: "上下文快照",
+                            subtitle: "用于回看本章生成时引用过的材料，不需要在主流程单独审核。"
                         )
                         CardBody {
-                            ScrollView {
-                                Text(MockData.contextPackJSON)
-                                    .font(.system(.body, design: .monospaced))
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .textSelection(.enabled)
+                            ContentBlock("本章可见范围") {
+                                MetricRowView(title: "本章出场", value: chapterStore.safetySummary.activeCast.joined(separator: ", "), tone: .green)
+                                MetricRowView(title: "可用专名数", value: "\(chapterStore.safetySummary.allowedNamesCount)", tone: .blue)
+                                MetricRowView(title: "弱提及额度", value: "\(chapterStore.safetySummary.mentionBudgetTotal)", tone: .orange)
                             }
-                            .frame(minHeight: 360)
+
+                            ContentBlock("可提及对象") {
+                                FlowLayout {
+                                    EntityChip(text: "A", tone: .green)
+                                    EntityChip(text: "B", tone: .green)
+                                    EntityChip(text: "C", tone: .green)
+                                    EntityChip(text: "旧码头", tone: .blue)
+                                    EntityChip(text: "旧案", tone: .blue)
+                                    EntityChip(text: "A 的母亲 · 1 次", tone: .orange)
+                                }
+                            }
+
+                            ContentBlock("叙事限制") {
+                                Text("A 不能直接知道旧案完整真相；叙述不能确认 B 的全部参与。")
+                                    .font(.callout)
+                                    .foregroundStyle(AppTheme.muted)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
 
                     CardView {
                         CardHeader(
-                            title: "Agent Run 历史",
-                            subtitle: "只在排查为什么写歪了时查看。"
+                            title: "生成运行记录",
+                            subtitle: "只在需要追溯某次生成结果时查看。"
                         )
                         CardBody {
                             VStack(alignment: .leading, spacing: 10) {
@@ -77,6 +94,7 @@ struct VersionsDebugView: View {
                             }
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
 
                 CardView {
@@ -128,10 +146,10 @@ struct VersionsDebugView: View {
     }
 
     @MainActor
-    private func exportDebugLog() {
+    private func exportRunLog() {
         let panel = NSSavePanel()
-        panel.title = "导出 NovelOSMac Debug Log"
-        panel.nameFieldStringValue = "NovelOSMac-DebugLog.json"
+        panel.title = "导出 NovelOSMac 记录"
+        panel.nameFieldStringValue = "NovelOSMac-RunLog.json"
         panel.allowedContentTypes = [.json]
         panel.canCreateDirectories = true
         panel.isExtensionHidden = false
@@ -145,12 +163,13 @@ struct VersionsDebugView: View {
             let json = try payload.prettyPrintedJSON()
             try json.write(to: url, atomically: true, encoding: .utf8)
             exportIsError = false
-            exportStatus = "日志已导出：\(url.lastPathComponent)"
+            exportStatus = "记录已导出：\(url.lastPathComponent)"
         } catch {
             exportIsError = true
             exportStatus = "导出失败：\(error.localizedDescription)"
         }
     }
+
 }
 
 private struct MetricInline: View {

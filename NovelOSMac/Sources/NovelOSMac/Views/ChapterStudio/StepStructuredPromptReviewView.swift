@@ -5,66 +5,81 @@ struct StepStructuredPromptReviewView: View {
     @Environment(ChapterWorkflowStore.self) private var store
 
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            CardView {
-                CardHeader(
-                    title: "结构化 Prompt 审核",
-                    subtitle: "这是你需要审核的核心文本。系统已经筛过上下文，但不会要求你单独审核 Context Pack。"
-                ) {
-                    PillView(text: ChapterStep.structuredPromptReview.userActionIndex, tone: .blue)
-                }
-                CardBody {
-                    if store.structuredPrompt == nil {
-                        EmptyStateView(text: "结构化 Prompt 尚未生成。请回到第一步输入 Prompt。")
-                    } else {
-                        editableTextBlock(title: "本章目标", binding: textBinding(\.chapterGoal), minHeight: 82)
-                        editableTextBlock(title: "必须发生", binding: listBinding(\.mustHappen), minHeight: 130)
-                        editableTextBlock(title: "禁止发生", binding: listBinding(\.mustNotHappen), minHeight: 130)
-
-                        ContentBlock("本章可用专名") {
-                            FlowLayout {
-                                ForEach(store.structuredPrompt?.allowedNamedEntities ?? []) { entity in
-                                    EntityChip(text: entityLabel(entity), tone: entityTone(entity))
-                                }
-                            }
-                        }
-
-                        editableTextBlock(title: "文风与叙事限制", binding: textBinding(\.narrativeStyle), minHeight: 104)
-                    }
-                }
-                CardFooter {
-                    Button("返回 Prompt") {
-                        store.tryMove(to: .promptInput)
-                    }
-                    Button("批准并生成正文") {
-                        Task {
-                            await store.approveStructuredPromptAndGenerateDraft()
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(store.structuredPrompt == nil)
-                }
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 16) {
+                reviewCard
+                    .frame(minWidth: 620)
+                helpBlocks
+                    .frame(width: 280)
             }
-            .frame(minWidth: 620)
 
             VStack(alignment: .leading, spacing: 12) {
-                ContentBlock("设计重点") {
-                    Text("这里是主流程唯一需要你编辑结构的地方。不要再额外弹出 Context Pack 审核、Agent 调用审核、Revision Plan 审核。")
-                        .font(.callout)
-                        .foregroundStyle(AppTheme.muted)
-                }
-                ContentBlock("后台已完成但不打扰你") {
-                    Text("Context Compiler 已隐藏本章不相关人物；Knowledge Matrix 已限制 A 不能直接知道旧案真相；Allowed Named Entities 已准备给正文审计器。")
-                        .font(.callout)
-                        .foregroundStyle(AppTheme.muted)
-                }
-                ContentBlock("编辑方式") {
-                    Text("结构化 Prompt 用卡片和可编辑文本，不让用户直接编辑 JSON。")
-                        .font(.callout)
-                        .foregroundStyle(AppTheme.muted)
+                reviewCard
+                helpBlocks
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var reviewCard: some View {
+        CardView {
+            CardHeader(
+                title: "结构化 Prompt 审核",
+                subtitle: "这是你需要审核的核心文本。系统已经筛过上下文，不会要求你单独审核附加材料。"
+            ) {
+                PillView(text: ChapterStep.structuredPromptReview.userActionIndex, tone: .blue)
+            }
+            CardBody {
+                if store.structuredPrompt == nil {
+                    EmptyStateView(text: "结构化 Prompt 尚未生成。请回到第一步输入 Prompt。")
+                } else {
+                    editableTextBlock(title: "本章目标", binding: textBinding(\.chapterGoal), minHeight: 82)
+                    editableTextBlock(title: "必须发生", binding: listBinding(\.mustHappen), minHeight: 130)
+                    editableTextBlock(title: "禁止发生", binding: listBinding(\.mustNotHappen), minHeight: 130)
+
+                    ContentBlock("本章可用专名") {
+                        FlowLayout {
+                            ForEach(store.structuredPrompt?.allowedNamedEntities ?? []) { entity in
+                                EntityChip(text: entityLabel(entity), tone: entityTone(entity))
+                            }
+                        }
+                    }
+
+                    editableTextBlock(title: "文风与叙事限制", binding: textBinding(\.narrativeStyle), minHeight: 104)
                 }
             }
-            .frame(width: 280)
+            CardFooter {
+                Button("返回 Prompt") {
+                    store.tryMove(to: .promptInput)
+                }
+                Button("批准并生成正文") {
+                    Task {
+                        await store.approveStructuredPromptAndGenerateDraft()
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(store.structuredPrompt == nil)
+            }
+        }
+    }
+
+    private var helpBlocks: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ContentBlock("审核范围") {
+                Text("只需要确认本章目标、必须发生、禁止发生、可用专名和文风限制。")
+                    .font(.callout)
+                    .foregroundStyle(AppTheme.muted)
+            }
+            ContentBlock("本章限制") {
+                Text("系统已按基础文档筛掉无关信息，并限制角色不能越权知道尚未揭露的真相。")
+                    .font(.callout)
+                    .foregroundStyle(AppTheme.muted)
+            }
+            ContentBlock("编辑方式") {
+                Text("直接改上方文字即可；批准后会生成正文草稿。")
+                    .font(.callout)
+                    .foregroundStyle(AppTheme.muted)
+            }
         }
     }
 

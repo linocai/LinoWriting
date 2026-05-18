@@ -246,7 +246,7 @@ import Foundation
     let decoded = try APIJSONCoding.makeDecoder().decode(DebugExportPayload.self, from: Data(json.utf8))
 
     #expect(decoded.contextPackJSON.contains("allowed_named_entities"))
-    #expect(decoded.agentRuns.map(\.agentName).contains("Context Compiler"))
+    #expect(decoded.agentRuns.map(\.agentName).contains("上下文整理"))
     #expect(decoded.chapterVersions.contains(where: { $0.kind == "final" }))
     #expect(json.contains("chapter_versions"))
     #expect(json.contains("context_pack_json"))

@@ -9,7 +9,7 @@ struct KnowledgeMatrixView: View {
 
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                TopBarView(kicker: "Knowledge Matrix · 核心防穿帮模块", title: "谁知道什么，比发生过什么更重要") {
+                TopBarView(kicker: "知识矩阵 · 防穿帮", title: "谁知道什么，比发生过什么更重要") {
                     HStack(spacing: 10) {
                         Button {
                             Task {
@@ -18,7 +18,7 @@ struct KnowledgeMatrixView: View {
                         } label: {
                             Label("新增知识条目", systemImage: "plus")
                         }
-                        Button("保存 Matrix") {
+                        Button("保存矩阵") {
                             Task {
                                 await store.saveMatrix()
                             }
@@ -29,7 +29,7 @@ struct KnowledgeMatrixView: View {
                 }
 
                 HStack(spacing: 12) {
-                    TextField("筛选事实、限制或 truth status", text: $store.filterText)
+                    TextField("筛选事实、限制或真相状态", text: $store.filterText)
                         .textFieldStyle(.roundedBorder)
                         .frame(maxWidth: 360)
                     Picker("角色", selection: $store.selectedCharacterName) {
@@ -63,7 +63,7 @@ struct KnowledgeMatrixView: View {
                     HStack(spacing: 8) {
                         ProgressView()
                             .controlSize(.small)
-                        Text(store.isLoading ? "加载 Knowledge Matrix 中" : "保存 Knowledge Matrix 中")
+                        Text(store.isLoading ? "加载知识矩阵中" : "保存知识矩阵中")
                             .font(.callout)
                             .foregroundStyle(AppTheme.muted)
                     }
@@ -75,7 +75,7 @@ struct KnowledgeMatrixView: View {
                 CardView {
                     CardHeader(
                         title: "知识矩阵",
-                        subtitle: "写作 Agent 只能根据本章视角使用允许的信息；Audit Agent 用完整矩阵检查越界。"
+                        subtitle: "按作者、读者和角色分别记录可知信息，避免正文提前泄露真相。"
                     )
                     CardBody {
                         ScrollView(.horizontal) {
@@ -98,7 +98,7 @@ struct KnowledgeMatrixView: View {
                                             TextField("事实", text: factTitleBinding(entry.id))
                                                 .textFieldStyle(.roundedBorder)
                                                 .frame(width: 220)
-                                            TextField("truth status", text: truthStatusBinding(entry.id))
+                                            TextField("真相状态", text: truthStatusBinding(entry.id))
                                                 .textFieldStyle(.roundedBorder)
                                                 .frame(width: 220)
                                         }
@@ -129,18 +129,18 @@ struct KnowledgeMatrixView: View {
                     }
                 }
 
-                HStack(alignment: .top, spacing: 12) {
-                    ContentBlock("施工意见 1") {
-                        Text("Matrix 适合表格视图，不适合纯文本编辑。它本质是状态机，不是备注。")
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 12, alignment: .top)], alignment: .leading, spacing: 12) {
+                    ContentBlock("使用方式") {
+                        Text("用表格记录每条事实对作者、读者和角色的可见状态，方便检查叙事视角。")
                             .font(.callout)
                             .foregroundStyle(AppTheme.muted)
                     }
-                    ContentBlock("施工意见 2") {
-                        Text("每章结构化 Prompt 只展示相关限制，不展示全矩阵，避免信息过载。")
+                    ContentBlock("章节写作") {
+                        Text("每章只会带入相关限制，当前页面负责维护完整矩阵。")
                             .font(.callout)
                             .foregroundStyle(AppTheme.muted)
                     }
-                    ContentBlock("施工意见 3") {
+                    ContentBlock("筛选建议") {
                         Text("允许按角色和状态筛选：只看 A 知道什么、B 隐瞒什么、读者已经知道什么。")
                             .font(.callout)
                             .foregroundStyle(AppTheme.muted)

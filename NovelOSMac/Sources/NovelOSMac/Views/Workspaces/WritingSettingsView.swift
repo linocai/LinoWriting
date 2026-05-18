@@ -18,7 +18,7 @@ struct WritingSettingsView: View {
                     CardView {
                         CardHeader(
                             title: "生成策略",
-                            subtitle: "这些设置影响后台，不增加用户主流程动作。"
+                            subtitle: "这些设置影响每章生成，但不会增加额外确认步骤。"
                         )
                         CardBody {
                             TextField("目标字数", text: $targetWords)
@@ -42,7 +42,7 @@ struct WritingSettingsView: View {
                             MetricRowView(title: "S1 明显问题", value: "提示给用户", tone: .orange)
                             MetricRowView(title: "S2 可选优化", value: "折叠展示", tone: .blue)
                             ContentBlock("主流程边界") {
-                                Text("不新增审核 Context Pack、Agent Plan 或 Revision Plan 的必需步骤。")
+                                Text("章节流程只保留输入、审核、修改、批准和确认基础文档更新。")
                                     .font(.callout)
                                     .foregroundStyle(AppTheme.muted)
                             }

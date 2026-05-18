@@ -219,18 +219,31 @@ struct TopBarView<Trailing: View>: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(kicker)
-                    .font(.caption.weight(.semibold))
-                    .textCase(.uppercase)
-                    .foregroundStyle(AppTheme.blue)
-                Text(title)
-                    .font(.largeTitle.weight(.bold))
-                    .lineLimit(2)
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 16) {
+                titleBlock
+                Spacer(minLength: 16)
+                trailing
             }
-            Spacer(minLength: 16)
-            trailing
+
+            VStack(alignment: .leading, spacing: 12) {
+                titleBlock
+                trailing
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var titleBlock: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(kicker)
+                .font(.caption.weight(.semibold))
+                .textCase(.uppercase)
+                .foregroundStyle(AppTheme.blue)
+            Text(title)
+                .font(.largeTitle.weight(.bold))
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }

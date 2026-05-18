@@ -16,10 +16,19 @@ ICON_DIR="${ROOT_DIR}/Resources/AppIcon"
 ICONSET_DIR="${ICON_DIR}/AppIcon.iconset"
 SOURCE_ICON="${ICON_DIR}/AppIcon-1024.png"
 ICNS_PATH="${ICON_DIR}/${APP_NAME}.icns"
+CUSTOM_ICON_SOURCE="${NOVEL_OS_ICON_SOURCE:-${1:-}}"
 
 mkdir -p "${ICON_DIR}" "${DIST_DIR}"
 
-swift "${SCRIPT_DIR}/generate_app_icon.swift" "${SOURCE_ICON}"
+if [[ -n "${CUSTOM_ICON_SOURCE}" ]]; then
+  if [[ ! -f "${CUSTOM_ICON_SOURCE}" ]]; then
+    echo "Custom icon source not found: ${CUSTOM_ICON_SOURCE}" >&2
+    exit 1
+  fi
+  sips -z 1024 1024 "${CUSTOM_ICON_SOURCE}" --out "${SOURCE_ICON}" >/dev/null
+else
+  swift "${SCRIPT_DIR}/generate_app_icon.swift" "${SOURCE_ICON}"
+fi
 
 rm -rf "${ICONSET_DIR}"
 mkdir -p "${ICONSET_DIR}"
