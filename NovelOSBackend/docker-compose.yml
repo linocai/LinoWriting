@@ -1,0 +1,31 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: novelos
+      POSTGRES_USER: novelos
+      POSTGRES_PASSWORD: novelos
+    ports:
+      - "5432:5432"
+    volumes:
+      - novelos-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U novelos -d novelos"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg://novelos:novelos@db:5432/novelos
+      NOVEL_OS_CREATE_TABLES_ON_STARTUP: "true"
+      NOVEL_OS_SEED_ON_STARTUP: "true"
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  novelos-postgres:
