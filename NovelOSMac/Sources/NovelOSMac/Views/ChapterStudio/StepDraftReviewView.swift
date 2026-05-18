@@ -88,7 +88,9 @@ struct StepDraftReviewView: View {
             }
             CardFooter {
                 Button("按我的意见修改") {
-                    store.requestRevision()
+                    Task {
+                        await store.requestRevision()
+                    }
                 }
                 .disabled(store.reviewFeedback.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.draft == nil)
 
@@ -98,7 +100,9 @@ struct StepDraftReviewView: View {
                 .disabled(store.draft == nil)
 
                 Button("我满意，进入批准") {
-                    _ = store.approveDraftForFinalReview()
+                    Task {
+                        _ = await store.approveDraftForFinalReview()
+                    }
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(store.draft == nil || store.finalApprovalBlockedReason != nil)

@@ -1,0 +1,29 @@
+{
+  "id": "sp_004",
+  "chapter_id": "chapter_004",
+  "chapter_goal": "让 A 对 B 的怀疑从模糊变成具体。",
+  "must_happen": [
+    "A 独自抵达旧码头。",
+    "B 出现并试图转移话题。"
+  ],
+  "must_not_happen": [
+    "不要揭露旧案完整真相。",
+    "不要新增有姓名角色。"
+  ],
+  "allowed_named_entities": [
+    { "name": "A", "activation": "ACTIVE" },
+    { "name": "B", "activation": "ACTIVE" },
+    { "name": "C", "activation": "ACTIVE" },
+    { "name": "旧码头", "activation": "ACTIVE" },
+    { "name": "旧案", "activation": "ACTIVE" },
+    { "name": "A 的母亲", "activation": "MENTION_ALLOWED", "mention_budget": 1 }
+  ],
+  "narrative_style": "第三人称有限视角，贴近 A。",
+  "activation_summary": {
+    "active_cast": ["A", "B", "C"],
+    "allowed_names_count": 6,
+    "mention_budget_total": 1,
+    "new_named_character_policy": "禁止"
+  },
+  "version": 1
+}

@@ -59,7 +59,9 @@ struct StepPromptInputView: View {
                         store.savePromptDraft()
                     }
                     Button("生成结构化 Prompt") {
-                        store.generateStructuredPrompt()
+                        Task {
+                            await store.generateStructuredPrompt()
+                        }
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(!store.canGenerateStructuredPrompt || store.isLoading)

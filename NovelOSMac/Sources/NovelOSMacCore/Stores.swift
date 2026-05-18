@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 
+@MainActor
 @Observable
 public final class AppStore {
     public var selectedWorkspace: Workspace = .chapterStudio
@@ -13,8 +14,11 @@ public final class AppStore {
     public init() {}
 }
 
+@MainActor
 @Observable
 public final class ChapterWorkflowStore {
+    @ObservationIgnored private let api: any ChapterWorkflowAPI
+
     public var novel: Novel
     public var chapter: Chapter
     public var currentStep: ChapterStep = .promptInput
@@ -27,8 +31,10 @@ public final class ChapterWorkflowStore {
     public var canonPatch: CanonUpdatePatch?
     public var isLoading: Bool = false
     public var statusMessage: String?
+    public var error: APIError?
 
-    public init() {
+    public init(api: any ChapterWorkflowAPI = MockChapterWorkflowAPI()) {
+        self.api = api
         novel = MockData.novel
         chapter = MockData.chapter
         promptDraft = MockData.promptDraft
@@ -71,107 +77,116 @@ public final class ChapterWorkflowStore {
         statusMessage = "Prompt 草稿已保存。"
     }
 
-    public func generateStructuredPrompt() {
+    public func generateStructuredPrompt() async {
         guard canGenerateStructuredPrompt else {
             statusMessage = "Prompt 至少需要 10 个字。"
             return
         }
         isLoading = true
-        structuredPrompt = MockData.structuredPrompt
-        chapter.status = .structuredPromptReady
-        unlock(.structuredPromptReview)
-        currentStep = .structuredPromptReview
-        isLoading = false
-        statusMessage = "结构化 Prompt 已生成。"
-    }
+        error = nil
+        defer { isLoading = false }
 
-    public func approveStructuredPromptAndGenerateDraft() {
-        if structuredPrompt == nil {
-            structuredPrompt = MockData.structuredPrompt
+        do {
+            try await api.submitUserPrompt(chapterID: chapter.id, prompt: promptDraft)
+            structuredPrompt = try await api.getStructuredPrompt(chapterID: chapter.id)
+            chapter.status = .structuredPromptReady
+            unlock(.structuredPromptReview)
+            currentStep = .structuredPromptReview
+            statusMessage = "结构化 Prompt 已生成。"
+        } catch {
+            handle(error)
         }
-        isLoading = true
-        draft = MockData.draft
-        auditSummary = MockData.auditSummary
-        chapter.status = .draftGenerated
-        chapter.currentVersionId = MockData.draft.id
-        unlock(.draftReview)
-        currentStep = .draftReview
-        isLoading = false
-        statusMessage = "正文已生成。"
     }
 
-    public func requestRevision() {
+    public func approveStructuredPromptAndGenerateDraft() async {
+        isLoading = true
+        error = nil
+        defer { isLoading = false }
+
+        do {
+            let prompt = try await currentOrRemoteStructuredPrompt()
+            structuredPrompt = try await api.updateStructuredPrompt(prompt, chapterID: chapter.id)
+            try await api.approveStructuredPrompt(chapterID: chapter.id)
+            try await api.generateDraft(chapterID: chapter.id)
+            let latestDraft = try await api.getLatestDraft(chapterID: chapter.id)
+            draft = latestDraft
+            auditSummary = latestDraft.auditSummary
+            chapter.status = .draftGenerated
+            chapter.currentVersionId = latestDraft.id
+            unlock(.draftReview)
+            currentStep = .draftReview
+            statusMessage = "正文已生成。"
+        } catch {
+            handle(error)
+        }
+    }
+
+    public func requestRevision() async {
         guard !reviewFeedback.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             statusMessage = "请先填写修改意见。"
             return
         }
 
-        let revisedSummary = AuditSummary(
-            s0Count: 0,
-            s1Count: 1,
-            s2Count: 1,
-            illegalNamedEntityCount: 0,
-            inactiveCharacterAppearanceCount: 0,
-            knowledgeViolationCount: 0,
-            newNamedEntityCount: 0,
-            issues: [
-                AuditIssue(
-                    id: "audit_s1_revised",
-                    severity: .s1,
-                    type: "语气仍可更克制",
-                    location: "对话中段",
-                    message: "B 的回应已经收敛，仍可进一步减少解释性台词。",
-                    suggestion: "保留停顿与动作，不增加背景说明。"
-                ),
-                AuditIssue(
-                    id: "audit_s2_revised",
-                    severity: .s2,
-                    type: "节奏建议",
-                    location: "结尾",
-                    message: "C 的线索足够短促，可保持当前处理。",
-                    suggestion: nil
-                )
-            ]
-        )
+        isLoading = true
+        error = nil
+        defer { isLoading = false }
 
-        let nextVersion = (draft?.versionNo ?? MockData.draft.versionNo) + 1
-        draft = Draft(
-            id: "draft_004_v\(nextVersion)",
-            chapterId: MockData.chapter.id,
-            versionNo: nextVersion,
-            text: MockData.revisedDraftText,
-            wordCount: 3028,
-            auditSummary: revisedSummary,
-            createdAt: MockData.now
-        )
-        auditSummary = revisedSummary
-        chapter.status = .draftGenerated
-        currentStep = .draftReview
-        unlock(.draftReview)
-        statusMessage = "已根据你的意见生成新版本。"
+        do {
+            let request = DraftReviewRequest(decision: .revise, feedback: reviewFeedback)
+            try await api.reviewDraft(chapterID: chapter.id, request: request)
+            let latestDraft = try await api.getLatestDraft(chapterID: chapter.id)
+            draft = latestDraft
+            auditSummary = latestDraft.auditSummary
+            chapter.status = .draftGenerated
+            chapter.currentVersionId = latestDraft.id
+            currentStep = .draftReview
+            unlock(.draftReview)
+            statusMessage = "已根据你的意见生成新版本。"
+        } catch {
+            handle(error)
+        }
     }
 
     @discardableResult
-    public func approveDraftForFinalReview() -> Bool {
+    public func approveDraftForFinalReview() async -> Bool {
         if let finalApprovalBlockedReason {
             statusMessage = finalApprovalBlockedReason
             return false
         }
 
-        chapter.status = .draftApproved
-        unlock(.finalApproval)
-        currentStep = .finalApproval
-        statusMessage = "正文已进入最终批准。"
-        return true
+        isLoading = true
+        error = nil
+        defer { isLoading = false }
+
+        do {
+            try await api.reviewDraft(chapterID: chapter.id, request: DraftReviewRequest(decision: .approve))
+            chapter.status = .draftApproved
+            unlock(.finalApproval)
+            currentStep = .finalApproval
+            statusMessage = "正文已进入最终批准。"
+            return true
+        } catch {
+            handle(error)
+            return false
+        }
     }
 
-    public func approveFinalTextAndPreparePatch() {
-        canonPatch = MockData.canonPatch
-        chapter.status = .canonPatchPending
-        chapter.approvedVersionId = draft?.id
-        unlock(.canonPatchReview)
-        currentStep = .canonPatchReview
-        statusMessage = "基础文档更新已准备好。"
+    public func approveFinalTextAndPreparePatch() async {
+        isLoading = true
+        error = nil
+        defer { isLoading = false }
+
+        do {
+            try await api.approveFinalText(chapterID: chapter.id)
+            canonPatch = try await api.getCanonUpdatePatch(chapterID: chapter.id)
+            chapter.status = .canonPatchPending
+            chapter.approvedVersionId = draft?.id
+            unlock(.canonPatchReview)
+            currentStep = .canonPatchReview
+            statusMessage = "基础文档更新已准备好。"
+        } catch {
+            handle(error)
+        }
     }
 
     public func updatePatchDecision(itemID: String, decision: PatchUserDecision) {
@@ -187,14 +202,43 @@ public final class ChapterWorkflowStore {
         canonPatch?.items[index].editablePayload = payload
     }
 
-    public func savePatchForLater() {
-        statusMessage = "基础文档更新已保存，可稍后确认。"
+    public func savePatchForLater() async {
+        guard let canonPatch else {
+            statusMessage = "基础文档更新尚未准备。"
+            return
+        }
+
+        isLoading = true
+        error = nil
+        defer { isLoading = false }
+
+        do {
+            self.canonPatch = try await api.updateCanonUpdatePatch(canonPatch, chapterID: chapter.id)
+            statusMessage = "基础文档更新已保存，可稍后确认。"
+        } catch {
+            handle(error)
+        }
     }
 
-    public func confirmCanonPatch() {
-        chapter.status = .completed
-        novel.currentCanonVersion = canonPatch?.targetCanonVersion ?? novel.currentCanonVersion
-        statusMessage = "本章已完成，Canon 已更新。"
+    public func confirmCanonPatch() async {
+        guard let canonPatch else {
+            statusMessage = "基础文档更新尚未准备。"
+            return
+        }
+
+        isLoading = true
+        error = nil
+        defer { isLoading = false }
+
+        do {
+            self.canonPatch = try await api.updateCanonUpdatePatch(canonPatch, chapterID: chapter.id)
+            try await api.confirmCanonUpdatePatch(chapterID: chapter.id)
+            chapter.status = .completed
+            novel.currentCanonVersion = canonPatch.targetCanonVersion
+            statusMessage = "本章已完成，Canon 已更新。"
+        } catch {
+            handle(error)
+        }
     }
 
     public func saveCurrentDraftVersion() {
@@ -223,8 +267,22 @@ public final class ChapterWorkflowStore {
             highestUnlockedStep = step
         }
     }
+
+    private func currentOrRemoteStructuredPrompt() async throws -> StructuredPrompt {
+        if let structuredPrompt {
+            return structuredPrompt
+        }
+        return try await api.getStructuredPrompt(chapterID: chapter.id)
+    }
+
+    private func handle(_ error: Error) {
+        let apiError = error as? APIError ?? APIError.transport(String(describing: error))
+        self.error = apiError
+        statusMessage = apiError.userMessage
+    }
 }
 
+@MainActor
 @Observable
 public final class BaseDocumentsStore {
     public var worldBibleSections: [WorldBibleSection]
@@ -302,6 +360,7 @@ public final class BaseDocumentsStore {
     }
 }
 
+@MainActor
 @Observable
 public final class KnowledgeMatrixStore {
     public var entries: [KnowledgeMatrixEntry]

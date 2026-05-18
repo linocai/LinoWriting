@@ -28,7 +28,9 @@ struct StepFinalApprovalView: View {
                         store.tryMove(to: .draftReview)
                     }
                     Button("批准正文并提取更新") {
-                        store.approveFinalTextAndPreparePatch()
+                        Task {
+                            await store.approveFinalTextAndPreparePatch()
+                        }
                     }
                     .buttonStyle(.borderedProminent)
                 }

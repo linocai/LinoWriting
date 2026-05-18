@@ -34,12 +34,16 @@ struct StepCanonPatchReviewView: View {
             }
             CardFooter {
                 Button("稍后确认") {
-                    store.savePatchForLater()
+                    Task {
+                        await store.savePatchForLater()
+                    }
                 }
                 .disabled(store.canonPatch == nil || store.chapter.status == .completed)
 
                 Button("确认更新，完成本章") {
-                    store.confirmCanonPatch()
+                    Task {
+                        await store.confirmCanonPatch()
+                    }
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(store.canonPatch == nil || store.chapter.status == .completed)

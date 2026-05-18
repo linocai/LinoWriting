@@ -1,0 +1,23 @@
+{
+  "id": "patch_004",
+  "chapter_id": "chapter_004",
+  "target_canon_version": 13,
+  "items": [
+    {
+      "id": "patch_memory_001",
+      "target": "Memory",
+      "title": "新增章节事实",
+      "summary": "A 在旧码头发现门锁被更换。",
+      "proposed_action": "accept",
+      "editable_payload": "A 在旧码头发现门锁被更换。"
+    },
+    {
+      "id": "patch_knowledge_001",
+      "target": "Knowledge",
+      "title": "更新 Knowledge Matrix",
+      "summary": "A：suspects -> strongly_suspects。",
+      "proposed_action": "modify",
+      "editable_payload": "A：suspects -> strongly_suspects。"
+    }
+  ]
+}

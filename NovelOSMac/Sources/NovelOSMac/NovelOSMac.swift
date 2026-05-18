@@ -4,7 +4,7 @@ import SwiftUI
 @main
 struct NovelOSMacApp: App {
     @State private var appStore = AppStore()
-    @State private var chapterStore = ChapterWorkflowStore()
+    @State private var chapterStore = ChapterWorkflowStore(api: AppEnvironment.chapterWorkflowAPI)
     @State private var baseDocumentsStore = BaseDocumentsStore()
     @State private var knowledgeStore = KnowledgeMatrixStore()
 

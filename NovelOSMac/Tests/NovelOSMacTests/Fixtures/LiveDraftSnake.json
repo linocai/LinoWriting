@@ -1,0 +1,27 @@
+{
+  "id": "draft_004_v3",
+  "chapter_id": "chapter_004",
+  "version_no": 3,
+  "text": "旧码头的铁门比 A 记忆里更窄。",
+  "word_count": 3120,
+  "audit_summary": {
+    "s0_count": 0,
+    "s1_count": 2,
+    "s2_count": 1,
+    "illegal_named_entity_count": 0,
+    "inactive_character_appearance_count": 0,
+    "knowledge_violation_count": 0,
+    "new_named_entity_count": 0,
+    "issues": [
+      {
+        "id": "audit_s1_001",
+        "severity": "S1",
+        "type": "暴露略早",
+        "location": "第 8-10 段",
+        "message": "B 的回避过于直接。",
+        "suggestion": "改为更克制的动作。"
+      }
+    ]
+  },
+  "created_at": 800000000
+}

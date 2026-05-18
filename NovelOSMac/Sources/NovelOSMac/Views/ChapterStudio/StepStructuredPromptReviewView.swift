@@ -37,7 +37,9 @@ struct StepStructuredPromptReviewView: View {
                         store.tryMove(to: .promptInput)
                     }
                     Button("批准并生成正文") {
-                        store.approveStructuredPromptAndGenerateDraft()
+                        Task {
+                            await store.approveStructuredPromptAndGenerateDraft()
+                        }
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(store.structuredPrompt == nil)
