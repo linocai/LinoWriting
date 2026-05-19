@@ -5,20 +5,8 @@ struct StepStructuredPromptReviewView: View {
     @Environment(ChapterWorkflowStore.self) private var store
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: 16) {
-                reviewCard
-                    .frame(minWidth: 620)
-                helpBlocks
-                    .frame(width: 300)
-            }
-
-            VStack(alignment: .leading, spacing: 12) {
-                reviewCard
-                helpBlocks
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
+        reviewCard
+            .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private var reviewCard: some View {
@@ -69,25 +57,6 @@ struct StepStructuredPromptReviewView: View {
                 .buttonStyle(BlueButtonStyle())
                 .disabled(store.structuredPrompt == nil)
             }
-        }
-    }
-
-    private var helpBlocks: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SideNoteView(
-                title: "你审核的是结构化 Prompt",
-                text: "不是底层 Context Pack。这里只保留目标、必须发生、禁止发生、可用专名和文风限制。",
-                tone: .orange
-            )
-            SideNoteView(
-                title: "Context Compiler",
-                text: "已隐藏本章不相关人物，只把写作需要的上下文整理进当前章节。"
-            )
-            SideNoteView(
-                title: "批准后直接生成整章",
-                text: "不进入 Scene Plan，也不增加额外用户确认步骤。",
-                tone: .blue
-            )
         }
     }
 

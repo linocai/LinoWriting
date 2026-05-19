@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class APIModel(BaseModel):
@@ -16,6 +16,23 @@ class Novel(APIModel):
     current_chapter_no: Optional[int] = None
     current_canon_version: Optional[int] = None
     bootstrap_status: str
+
+
+class NovelCreate(APIModel):
+    id: Optional[str] = None
+    title: str
+    genre: Optional[str] = None
+    current_chapter_no: Optional[int] = None
+    current_canon_version: Optional[int] = None
+    bootstrap_status: str = "not_started"
+
+
+class NovelUpdate(APIModel):
+    title: Optional[str] = None
+    genre: Optional[str] = None
+    current_chapter_no: Optional[int] = None
+    current_canon_version: Optional[int] = None
+    bootstrap_status: Optional[str] = None
 
 
 class Chapter(APIModel):
@@ -94,12 +111,19 @@ class ContextPackSnapshot(APIModel):
 
 class AgentRun(APIModel):
     id: str
-    chapter_id: str
+    novel_id: Optional[str] = None
+    chapter_id: Optional[str] = None
     agent_name: str
+    run_type: str = "workflow"
     summary: str
     status: str
     timestamp_label: str
     payload: dict
+    input_payload: dict = Field(default_factory=dict)
+    output_payload: dict = Field(default_factory=dict)
+    error_message: Optional[str] = None
+    started_at: Optional[float] = None
+    finished_at: Optional[float] = None
     created_at: float
 
 
@@ -111,7 +135,35 @@ class AuditReport(APIModel):
     knowledge_result: dict
     continuity_result: dict
     summary: AuditSummary
+    passed: bool = True
+    highest_severity: str = "none"
     created_at: float
+
+
+class BootstrapChapterInput(APIModel):
+    chapter_no: int
+    title: Optional[str] = None
+    text: str
+
+
+class BootstrapImportRequest(APIModel):
+    chapters: list[BootstrapChapterInput]
+
+
+class BootstrapStatus(APIModel):
+    novel_id: str
+    status: str
+    import_id: Optional[str] = None
+    imported_chapter_count: int = 0
+    analysis_ready: bool = False
+    updated_at: Optional[float] = None
+
+
+class BootstrapAnalyzeResponse(APIModel):
+    novel_id: str
+    status: str
+    import_id: str
+    analysis: dict
 
 
 class CanonPatchItem(APIModel):
@@ -176,6 +228,7 @@ class KnowledgeMatrixEntry(APIModel):
     author_knowledge: str
     reader_knowledge: str
     character_knowledge: list[CharacterKnowledge]
+    visibility: Optional[dict] = None
     allowed_narration: str
     canon_version: int
 

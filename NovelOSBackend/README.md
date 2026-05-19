@@ -1,12 +1,14 @@
 # NovelOSBackend
 
-FastAPI + PostgreSQL backend MVP for the NovelOS macOS app.
+FastAPI + PostgreSQL backend for the NovelOS macOS app.
 
-This phase is a persistent Mock API. It implements the REST surface already used by the SwiftUI frontend and keeps deterministic workflow behavior. It does not call a real LLM, run Agent orchestration, or implement auth.
+This phase is still deterministic and does not call a real LLM, but the mock behavior now runs behind replaceable Agent, LLM gateway, and workflow orchestration seams. The SwiftUI five-step chapter workflow remains API-compatible while the backend grows toward production.
 
 Phase 2 adds a deterministic chapter-generation pipeline: submitting a chapter prompt now persists Intent Parser, Context Compiler, and Prompt Expander runs plus a Context Pack snapshot; draft generation persists a Writing Agent run.
 
 Phase 3 adds deterministic draft review support: Writing and Revision output now produces Named Entity, Knowledge, and Continuity audit runs plus a persisted Audit Report. Draft approval is blocked with `409` when the latest draft has S0 audit issues.
+
+Phase 4 adds Novel CRUD, first-three-chapter bootstrap import/analyze placeholders, Alembic migrations, enriched Agent Run trace fields, Audit Report pass/highest-severity fields, and Knowledge Matrix visibility storage.
 
 ## Run With Docker Compose
 
@@ -41,6 +43,8 @@ Tests use SQLite for speed and isolation; Docker Compose is the default Postgres
 
 ## Implemented API
 
+- Novel CRUD at `/api/novels`
+- Bootstrap import/analyze/status at `/api/novels/{novel_id}/bootstrap/...`
 - Chapter Workflow endpoints under `/api/chapters/{chapter_id}/...`
 - Debuggable workflow artifacts at `/api/chapters/{chapter_id}/context-pack` and `/api/chapters/{chapter_id}/agent-runs`
 - Latest draft audit report at `/api/chapters/{chapter_id}/audit/latest`
@@ -49,3 +53,12 @@ Tests use SQLite for speed and isolation; Docker Compose is the default Postgres
 - `GET /healthz`
 
 Character cards intentionally do not expose DELETE, matching `novel_ai_backend_plan_v1.md`.
+
+## Migrations
+
+Alembic is configured in `alembic.ini`.
+
+```bash
+alembic upgrade head
+alembic downgrade base
+```

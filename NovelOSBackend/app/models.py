@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from sqlalchemy import Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import JSON
 
@@ -65,12 +65,19 @@ class AgentRunModel(Base):
     __tablename__ = "agent_runs"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
-    chapter_id: Mapped[str] = mapped_column(String, ForeignKey("chapters.id"), nullable=False)
+    novel_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("novels.id"), nullable=True)
+    chapter_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("chapters.id"), nullable=True)
     agent_name: Mapped[str] = mapped_column(String, nullable=False)
+    run_type: Mapped[str] = mapped_column(String, nullable=False, default="workflow")
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False)
     timestamp_label: Mapped[str] = mapped_column(String, nullable=False)
     payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    input_payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    output_payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    started_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    finished_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     created_at: Mapped[float] = mapped_column(Float, nullable=False)
 
 
@@ -84,7 +91,22 @@ class AuditReportModel(Base):
     knowledge_result: Mapped[dict] = mapped_column(JSON, nullable=False)
     continuity_result: Mapped[dict] = mapped_column(JSON, nullable=False)
     summary: Mapped[dict] = mapped_column(JSON, nullable=False)
+    passed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    highest_severity: Mapped[str] = mapped_column(String, nullable=False, default="none")
     created_at: Mapped[float] = mapped_column(Float, nullable=False)
+
+
+class BootstrapImportModel(Base):
+    __tablename__ = "bootstrap_imports"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    novel_id: Mapped[str] = mapped_column(String, ForeignKey("novels.id"), nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="imported")
+    source_type: Mapped[str] = mapped_column(String, nullable=False, default="first_three_chapters")
+    chapters_payload: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    analysis_payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[float] = mapped_column(Float, nullable=False)
+    updated_at: Mapped[float] = mapped_column(Float, nullable=False)
 
 
 class WorldBibleSectionModel(Base):
@@ -129,6 +151,7 @@ class KnowledgeMatrixEntryModel(Base):
     author_knowledge: Mapped[str] = mapped_column(String, nullable=False)
     reader_knowledge: Mapped[str] = mapped_column(String, nullable=False)
     character_knowledge: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    visibility: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     allowed_narration: Mapped[str] = mapped_column(Text, nullable=False, default="")
     canon_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 

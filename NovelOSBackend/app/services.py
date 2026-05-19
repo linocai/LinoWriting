@@ -1,13 +1,25 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from uuid import uuid4
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import mock_data
-from app.models import AgentRunModel, AuditReportModel, ChapterModel, ContextPackModel, DraftModel, NovelModel
+from app.agents.base import AgentResult
+from app.agents.safety import highest_severity, summary_passed
+from app.models import (
+    AgentRunModel,
+    AuditReportModel,
+    BootstrapImportModel,
+    ChapterModel,
+    ContextPackModel,
+    DraftModel,
+    NovelModel,
+)
+from app.orchestrator import ChapterWorkflowOrchestrator
 
 APPLE_REFERENCE_DATE = datetime(2001, 1, 1, tzinfo=timezone.utc)
 
@@ -20,6 +32,30 @@ def require_novel(session: Session, novel_id: str) -> NovelModel:
     novel = session.get(NovelModel, novel_id)
     if novel is None:
         raise HTTPException(status_code=404, detail=f"Novel not found: {novel_id}")
+    return novel
+
+
+def create_novel(session: Session, payload: dict) -> NovelModel:
+    novel_id = payload.get("id") or f"novel_{uuid4().hex[:8]}"
+    if session.get(NovelModel, novel_id) is not None:
+        raise HTTPException(status_code=409, detail=f"Novel already exists: {novel_id}")
+    novel = NovelModel(
+        id=novel_id,
+        title=payload["title"],
+        genre=payload.get("genre"),
+        current_chapter_no=payload.get("current_chapter_no"),
+        current_canon_version=payload.get("current_canon_version"),
+        bootstrap_status=payload.get("bootstrap_status") or "not_started",
+    )
+    session.add(novel)
+    return novel
+
+
+def update_novel(session: Session, novel_id: str, payload: dict) -> NovelModel:
+    novel = require_novel(session, novel_id)
+    for key, value in payload.items():
+        if value is not None:
+            setattr(novel, key, value)
     return novel
 
 
@@ -55,6 +91,114 @@ def latest_audit_report(session: Session, chapter_id: str) -> AuditReportModel |
     )
 
 
+def latest_bootstrap_import(session: Session, novel_id: str) -> BootstrapImportModel | None:
+    return session.scalar(
+        select(BootstrapImportModel)
+        .where(BootstrapImportModel.novel_id == novel_id)
+        .order_by(BootstrapImportModel.updated_at.desc(), BootstrapImportModel.id.desc())
+        .limit(1)
+    )
+
+
+def bootstrap_status_payload(session: Session, novel: NovelModel) -> dict:
+    import_row = latest_bootstrap_import(session, novel.id)
+    chapters = import_row.chapters_payload if import_row else []
+    return {
+        "novel_id": novel.id,
+        "status": novel.bootstrap_status,
+        "import_id": import_row.id if import_row else None,
+        "imported_chapter_count": len(chapters),
+        "analysis_ready": bool(import_row and import_row.analysis_payload),
+        "updated_at": import_row.updated_at if import_row else None,
+    }
+
+
+def import_first_three_chapters(
+    session: Session,
+    novel: NovelModel,
+    chapters_payload: list[dict],
+) -> dict:
+    chapter_numbers = [int(chapter["chapter_no"]) for chapter in chapters_payload]
+    if sorted(chapter_numbers) != [1, 2, 3]:
+        raise HTTPException(status_code=400, detail="Bootstrap import requires exactly chapters 1, 2, and 3.")
+
+    now = apple_timestamp_now()
+    import_row = BootstrapImportModel(
+        id=f"bootstrap_{novel.id}_{uuid4().hex[:8]}",
+        novel_id=novel.id,
+        status="imported",
+        source_type="first_three_chapters",
+        chapters_payload=chapters_payload,
+        analysis_payload={},
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(import_row)
+
+    for chapter_payload in chapters_payload:
+        chapter_no = int(chapter_payload["chapter_no"])
+        chapter = session.scalar(
+            select(ChapterModel).where(
+                ChapterModel.novel_id == novel.id,
+                ChapterModel.chapter_no == chapter_no,
+            )
+        )
+        if chapter is None:
+            chapter = ChapterModel(
+                id=f"{novel.id}_chapter_{chapter_no:03}",
+                novel_id=novel.id,
+                chapter_no=chapter_no,
+                title=chapter_payload.get("title"),
+                status="imported",
+                target_word_count=3000,
+                approved_version_id=None,
+                current_version_id=None,
+                canon_version_used=novel.current_canon_version,
+            )
+            session.add(chapter)
+        else:
+            chapter.title = chapter_payload.get("title") or chapter.title
+            chapter.status = "imported"
+
+    novel.bootstrap_status = "imported"
+    novel.current_chapter_no = max(novel.current_chapter_no or 0, 3)
+    novel.current_canon_version = novel.current_canon_version or 1
+    session.flush()
+    return bootstrap_status_payload(session, novel)
+
+
+def analyze_bootstrap_import(session: Session, novel: NovelModel) -> dict:
+    import_row = latest_bootstrap_import(session, novel.id)
+    if import_row is None:
+        raise HTTPException(status_code=409, detail="Import the first three chapters before analysis.")
+
+    result = ChapterWorkflowOrchestrator().run_bootstrap_analysis(
+        novel_id=novel.id,
+        chapters=import_row.chapters_payload,
+    )
+    import_row.analysis_payload = result.payload
+    import_row.status = "analyzed"
+    import_row.updated_at = apple_timestamp_now()
+    novel.bootstrap_status = "analyzed"
+    novel.current_chapter_no = max(novel.current_chapter_no or 0, 3)
+    novel.current_canon_version = novel.current_canon_version or 1
+    record_agent_result(
+        session,
+        run_id=f"{import_row.id}_import_agent",
+        novel_id=novel.id,
+        chapter_id=None,
+        result=result,
+        timestamp_label="bootstrap",
+        input_payload={"import_id": import_row.id},
+    )
+    return {
+        "novel_id": novel.id,
+        "status": novel.bootstrap_status,
+        "import_id": import_row.id,
+        "analysis": import_row.analysis_payload,
+    }
+
+
 def ensure_structured_prompt(chapter: ChapterModel) -> dict:
     if chapter.structured_prompt:
         return dict(chapter.structured_prompt)
@@ -78,6 +222,7 @@ def build_context_pack(chapter: ChapterModel) -> dict:
             "A cannot know the full truth of the old case",
             "Narration cannot confirm B's full involvement",
         ],
+        "forbidden_named_entities": ["D", "陌生角色", "新角色"],
     }
 
 
@@ -85,22 +230,37 @@ def upsert_agent_run(
     session: Session,
     *,
     run_id: str,
-    chapter_id: str,
+    chapter_id: str | None,
+    novel_id: str | None = None,
     agent_name: str,
     summary: str,
     status: str,
     timestamp_label: str,
+    run_type: str = "workflow",
     payload: dict | None = None,
+    input_payload: dict | None = None,
+    output_payload: dict | None = None,
+    error_message: str | None = None,
+    started_at: float | None = None,
+    finished_at: float | None = None,
 ) -> AgentRunModel:
+    now = apple_timestamp_now()
     run = session.get(AgentRunModel, run_id)
     values = {
+        "novel_id": novel_id,
         "chapter_id": chapter_id,
         "agent_name": agent_name,
+        "run_type": run_type,
         "summary": summary,
         "status": status,
         "timestamp_label": timestamp_label,
         "payload": payload or {},
-        "created_at": apple_timestamp_now(),
+        "input_payload": input_payload or {},
+        "output_payload": output_payload if output_payload is not None else (payload or {}),
+        "error_message": error_message,
+        "started_at": started_at or now,
+        "finished_at": finished_at or now,
+        "created_at": now,
     }
     if run is None:
         run = AgentRunModel(id=run_id, **values)
@@ -111,14 +271,47 @@ def upsert_agent_run(
     return run
 
 
+def record_agent_result(
+    session: Session,
+    *,
+    run_id: str,
+    novel_id: str | None,
+    chapter_id: str | None,
+    result: AgentResult,
+    timestamp_label: str,
+    input_payload: dict | None = None,
+) -> AgentRunModel:
+    return upsert_agent_run(
+        session,
+        run_id=run_id,
+        novel_id=novel_id,
+        chapter_id=chapter_id,
+        agent_name=result.agent_name,
+        run_type=result.run_type,
+        summary=result.summary,
+        status=result.status,
+        timestamp_label=timestamp_label,
+        payload=result.payload,
+        input_payload=input_payload,
+        output_payload=result.payload,
+        error_message=result.error_message,
+    )
+
+
 def run_prompt_pipeline(session: Session, chapter: ChapterModel, prompt: str) -> dict:
     chapter.user_prompt = prompt
-    structured_prompt = dict(mock_data.STRUCTURED_PROMPT)
-    structured_prompt["chapter_id"] = chapter.id
+    context_payload = build_context_pack(chapter)
+    orchestrator = ChapterWorkflowOrchestrator()
+    results = orchestrator.run_prompt(
+        novel_id=chapter.novel_id,
+        chapter_id=chapter.id,
+        prompt=prompt,
+        context_payload=context_payload,
+    )
+    structured_prompt = dict(results[-1].payload)
     chapter.structured_prompt = structured_prompt
     chapter.status = "structuredPromptReady"
 
-    context_payload = build_context_pack(chapter)
     context_pack = session.get(ContextPackModel, f"context_{chapter.id}")
     if context_pack is None:
         context_pack = ContextPackModel(
@@ -132,35 +325,32 @@ def run_prompt_pipeline(session: Session, chapter: ChapterModel, prompt: str) ->
         context_pack.payload = context_payload
         context_pack.created_at = apple_timestamp_now()
 
-    upsert_agent_run(
+    record_agent_result(
         session,
         run_id=f"{chapter.id}_intent_parser",
+        novel_id=chapter.novel_id,
         chapter_id=chapter.id,
-        agent_name="Intent Parser",
-        summary="识别 A/B/C、旧码头、旧案、冷感基调。",
-        status="pass",
         timestamp_label="12:01",
-        payload={"prompt": prompt, "entities": ["A", "B", "C", "旧码头", "旧案"]},
+        result=results[0],
+        input_payload={"prompt": prompt},
     )
-    upsert_agent_run(
+    record_agent_result(
         session,
         run_id=f"{chapter.id}_context_compiler",
+        novel_id=chapter.novel_id,
         chapter_id=chapter.id,
-        agent_name="Context Compiler",
-        summary="生成 allowed names，隐藏非本章人物。",
-        status="pass",
         timestamp_label="12:02",
-        payload=context_payload,
+        result=results[1],
+        input_payload={"prompt": prompt},
     )
-    upsert_agent_run(
+    record_agent_result(
         session,
         run_id=f"{chapter.id}_prompt_expander",
+        novel_id=chapter.novel_id,
         chapter_id=chapter.id,
-        agent_name="Prompt Expander",
-        summary="生成结构化 Prompt。",
-        status="ready_for_review",
         timestamp_label="12:04",
-        payload=structured_prompt,
+        result=results[2],
+        input_payload={"prompt": prompt, "context_pack_id": context_pack.id},
     )
     return structured_prompt
 
@@ -200,15 +390,19 @@ def run_writing_agent(session: Session, chapter: ChapterModel) -> DraftModel:
     draft = ensure_initial_draft(session, chapter)
     chapter.status = "draftGenerated"
     chapter.current_version_id = draft.id
-    upsert_agent_run(
+    result = ChapterWorkflowOrchestrator().run_writing(
+        novel_id=chapter.novel_id,
+        chapter_id=chapter.id,
+        draft=draft,
+    )
+    record_agent_result(
         session,
         run_id=f"{chapter.id}_writing_agent_v{draft.version_no}",
+        novel_id=chapter.novel_id,
         chapter_id=chapter.id,
-        agent_name="Writing Agent",
-        summary=f"生成正文 v{draft.version_no}，字数 {draft.word_count}，S0=0。",
-        status="draft_generated",
         timestamp_label="12:08",
-        payload={"draft_id": draft.id, "version_no": draft.version_no},
+        result=result,
+        input_payload={"structured_prompt_id": (chapter.structured_prompt or {}).get("id")},
     )
     run_audit_pipeline(session, chapter, draft, timestamp_prefix="12:09")
     return draft
@@ -258,40 +452,46 @@ def run_audit_pipeline(
     timestamp_prefix: str,
 ) -> AuditReportModel:
     session.flush()
-    draft.audit_summary = draft.audit_summary or mock_data.AUDIT_SUMMARY
-    named_entity_result = audit_result_payload(draft, "named_entity")
-    knowledge_result = audit_result_payload(draft, "knowledge")
-    continuity_result = audit_result_payload(draft, "continuity")
+    context_pack = session.get(ContextPackModel, f"context_{chapter.id}")
+    context_payload = context_pack.payload if context_pack else build_context_pack(chapter)
+    draft.audit_summary, results = ChapterWorkflowOrchestrator().run_audit(
+        novel_id=chapter.novel_id,
+        chapter_id=chapter.id,
+        draft_id=draft.id,
+        draft_text=draft.text,
+        context_payload=context_payload,
+        base_summary=draft.audit_summary or mock_data.AUDIT_SUMMARY,
+    )
+    named_entity_result = dict(results[0].payload)
+    knowledge_result = dict(results[1].payload)
+    continuity_result = dict(results[2].payload)
 
-    upsert_agent_run(
+    record_agent_result(
         session,
         run_id=f"{draft.id}_named_entity_auditor",
+        novel_id=chapter.novel_id,
         chapter_id=chapter.id,
-        agent_name="Named Entity Auditor",
-        summary="检查非法命名实体、未激活人物和新增命名角色。",
-        status="pass" if named_entity_result["passed"] else "block",
         timestamp_label=timestamp_prefix,
-        payload={"draft_id": draft.id, **named_entity_result},
+        result=results[0],
+        input_payload={"draft_id": draft.id},
     )
-    upsert_agent_run(
+    record_agent_result(
         session,
         run_id=f"{draft.id}_knowledge_auditor",
+        novel_id=chapter.novel_id,
         chapter_id=chapter.id,
-        agent_name="Knowledge Auditor",
-        summary="检查 Knowledge Matrix 限制和旁白泄露风险。",
-        status="pass" if knowledge_result["passed"] else "block",
         timestamp_label=increment_timestamp(timestamp_prefix, 1),
-        payload={"draft_id": draft.id, **knowledge_result},
+        result=results[1],
+        input_payload={"draft_id": draft.id},
     )
-    upsert_agent_run(
+    record_agent_result(
         session,
         run_id=f"{draft.id}_continuity_auditor",
+        novel_id=chapter.novel_id,
         chapter_id=chapter.id,
-        agent_name="Continuity Auditor",
-        summary=f"S0={draft.audit_summary['s0_count']}，S1={draft.audit_summary['s1_count']}，S2={draft.audit_summary['s2_count']}。",
-        status="suggest" if draft.audit_summary["s1_count"] or draft.audit_summary["s2_count"] else "pass",
         timestamp_label=increment_timestamp(timestamp_prefix, 2),
-        payload={"draft_id": draft.id, **continuity_result},
+        result=results[2],
+        input_payload={"draft_id": draft.id},
     )
 
     report_id = f"audit_{draft.id}"
@@ -303,6 +503,8 @@ def run_audit_pipeline(
         "knowledge_result": knowledge_result,
         "continuity_result": continuity_result,
         "summary": draft.audit_summary,
+        "passed": summary_passed(draft.audit_summary),
+        "highest_severity": highest_severity(draft.audit_summary),
         "created_at": apple_timestamp_now(),
     }
     if report is None:
@@ -337,20 +539,21 @@ def create_revision(session: Session, chapter: ChapterModel, feedback: str | Non
     session.add(revision)
     chapter.current_version_id = revision.id
     chapter.status = "revisionRequired"
-    upsert_agent_run(
+    result = ChapterWorkflowOrchestrator().run_revision(
+        novel_id=chapter.novel_id,
+        chapter_id=chapter.id,
+        current=current,
+        revision=revision,
+        feedback=feedback,
+    )
+    record_agent_result(
         session,
         run_id=f"{chapter.id}_revision_agent_v{next_version}",
+        novel_id=chapter.novel_id,
         chapter_id=chapter.id,
-        agent_name="Revision Agent",
-        summary=f"按用户意见生成 v{next_version}，保留正文审核步骤。",
-        status="revision_generated",
         timestamp_label="12:12",
-        payload={
-            "from_draft_id": current.id,
-            "draft_id": revision.id,
-            "feedback": feedback or "",
-            "version_no": next_version,
-        },
+        result=result,
+        input_payload={"from_draft_id": current.id, "feedback": feedback or ""},
     )
     run_audit_pipeline(session, chapter, revision, timestamp_prefix="12:13")
     return revision

@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app import models  # noqa: F401
 from app.database import Base, SessionLocal, engine
-from app.routers import base_documents, chapter_workflow, knowledge_matrix
+from app.routers import base_documents, chapter_workflow, knowledge_matrix, novels
 from app.seed import seed_database
 
 
@@ -48,6 +48,7 @@ def create_app(init_on_startup: bool = True) -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(chapter_workflow.router)
+    app.include_router(novels.router)
     app.include_router(base_documents.router)
     app.include_router(knowledge_matrix.router)
     return app
