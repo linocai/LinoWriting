@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -291,6 +292,7 @@ def analyze_bootstrap_import(session: Session, novel: NovelModel) -> dict:
         chapters=import_row.chapters_payload,
     )
     import_row.analysis_payload = result.payload
+    apply_bootstrap_canon_analysis(session, novel, result.payload)
     import_row.status = "analyzed"
     import_row.updated_at = apple_timestamp_now()
     novel.bootstrap_status = "analyzed"
@@ -310,6 +312,245 @@ def analyze_bootstrap_import(session: Session, novel: NovelModel) -> dict:
         "import_id": import_row.id,
         "analysis": import_row.analysis_payload,
     }
+
+
+def apply_bootstrap_canon_analysis(session: Session, novel: NovelModel, analysis: dict) -> None:
+    now = apple_timestamp_now()
+    canon_version = novel.current_canon_version or 1
+    novel.current_canon_version = canon_version
+
+    character_id_by_name: dict[str, str] = {}
+    for index, item in enumerate(_dict_items(analysis.get("character_cards"))):
+        name = _text(item.get("name")) or f"角色 {index + 1}"
+        character_id = _stable_doc_id(novel.id, "char", name)
+        character_id_by_name[name] = character_id
+        relationships = [
+            {
+                "id": _text(rel.get("id")) or _stable_doc_id(character_id, "rel", rel.get("target_character_name") or rel.get("target_name") or index),
+                "target_character_name": _text(rel.get("target_character_name") or rel.get("target_name")),
+                "relationship_summary": _text(rel.get("relationship_summary") or rel.get("summary")),
+                "current_tension": _optional_text(rel.get("current_tension")),
+                "last_changed_chapter_no": _optional_int(rel.get("last_changed_chapter_no")),
+            }
+            for index, rel in enumerate(_dict_items(item.get("relationships")))
+            if _text(rel.get("target_character_name") or rel.get("target_name"))
+        ]
+        payload = {
+            "id": character_id,
+            "novel_id": novel.id,
+            "name": name,
+            "aliases": _string_list(item.get("aliases")),
+            "role": _text(item.get("role"), "未分类人物"),
+            "stable_traits": _string_list(item.get("stable_traits")),
+            "current_state": _summary_dict(item.get("current_state")),
+            "dialogue_style": _summary_dict(item.get("dialogue_style")),
+            "knowledge_summary": _plain_dict(item.get("knowledge_summary")),
+            "do_not_auto_mention": bool(item.get("do_not_auto_mention") or False),
+            "default_visibility": _text(item.get("default_visibility"), "manual_only"),
+            "relationships": relationships,
+            "forbidden_behavior": _string_list(item.get("forbidden_behavior")),
+            "last_active_chapter_no": _optional_int(item.get("last_active_chapter_no")),
+            "canon_version": canon_version,
+        }
+        _upsert_character_card(session, payload)
+
+    for item in _dict_items(analysis.get("world_bible_sections")):
+        title = _text(item.get("title")) or "未命名基础设定"
+        section_key = _optional_text(item.get("section_key"))
+        payload = {
+            "id": _stable_doc_id(novel.id, "wb", section_key or title),
+            "novel_id": novel.id,
+            "section_key": section_key,
+            "title": title,
+            "content": _text(item.get("content") or item.get("summary")),
+            "tags": _string_list(item.get("tags")),
+            "importance": _choice(item.get("importance"), {"low", "medium", "high", "critical"}, "medium"),
+            "activation_policy": _choice(
+                item.get("activation_policy"),
+                {"always_in_context_brief", "always_considered", "tag_matched", "manual_only"},
+                "tag_matched",
+            ),
+            "canon_version": canon_version,
+            "updated_at": now,
+        }
+        _upsert_model(session, WorldBibleSectionModel, payload)
+
+    for index, item in enumerate(_dict_items(analysis.get("memory_facts"))):
+        chapter_no = _optional_int(item.get("chapter_no")) or 1
+        summary = _text(item.get("summary")) or f"第 {chapter_no} 章导入事实"
+        payload = {
+            "id": _text(item.get("id")) or _stable_doc_id(novel.id, "mem", chapter_no, summary),
+            "novel_id": novel.id,
+            "chapter_no": chapter_no,
+            "fact_type": _text(item.get("fact_type"), "event"),
+            "time_in_story": _optional_text(item.get("time_in_story")),
+            "summary": summary,
+            "participants": _string_list(item.get("participants")),
+            "location": _optional_text(item.get("location")),
+            "evidence": _text(item.get("evidence"), f"前三章导入分析 #{index + 1}"),
+            "canon_status": _text(item.get("canon_status"), "confirmed"),
+            "canon_version": canon_version,
+            "metadata_json": _plain_dict(item.get("metadata")),
+            "created_by": _text(item.get("created_by"), "import_agent"),
+        }
+        _upsert_model(session, MemoryFactModel, payload)
+
+    for item in _dict_items(analysis.get("knowledge_matrix")):
+        fact_title = _text(item.get("fact_title") or item.get("title")) or "未命名知识条目"
+        character_knowledge = []
+        visibility = {
+            "author": _knowledge_state(item.get("author_knowledge"), "known"),
+            "reader": _knowledge_state(item.get("reader_knowledge"), "reader_unknown"),
+        }
+        for rel in _dict_items(item.get("character_knowledge")):
+            character_name = _text(rel.get("character_name") or rel.get("name"))
+            character_id = _text(rel.get("character_id")) or character_id_by_name.get(character_name)
+            if not character_name and character_id:
+                character_name = character_id
+            if character_name and not character_id:
+                character_id = _stable_doc_id(novel.id, "char", character_name)
+            if character_id and character_name:
+                state = _knowledge_state(rel.get("state"), "unknown")
+                visibility[character_id] = state
+                character_knowledge.append(
+                    {
+                        "character_id": character_id,
+                        "character_name": character_name,
+                        "state": state,
+                    }
+                )
+        payload = {
+            "id": _text(item.get("id")) or _stable_doc_id(novel.id, "km", fact_title),
+            "novel_id": novel.id,
+            "fact": _optional_text(item.get("fact")) or fact_title,
+            "fact_title": fact_title,
+            "truth_status": _text(item.get("truth_status"), "confirmed"),
+            "author_knowledge": visibility["author"],
+            "reader_knowledge": visibility["reader"],
+            "character_knowledge": character_knowledge,
+            "visibility": visibility,
+            "allowed_narration": _summary_dict(item.get("allowed_narration")),
+            "canon_version": canon_version,
+        }
+        _upsert_model(session, KnowledgeMatrixEntryModel, payload)
+
+
+def _upsert_model(session: Session, model_class, payload: dict) -> None:
+    row = session.get(model_class, payload["id"])
+    if row is None:
+        session.add(model_class(**payload))
+        return
+    for key, value in payload.items():
+        if key != "id":
+            setattr(row, key, value)
+
+
+def _upsert_character_card(session: Session, payload: dict) -> None:
+    row = session.get(CharacterCardModel, payload["id"]) or session.scalar(
+        select(CharacterCardModel).where(
+            CharacterCardModel.novel_id == payload["novel_id"],
+            CharacterCardModel.name == payload["name"],
+        )
+    )
+    if row is None:
+        session.add(CharacterCardModel(**payload))
+        return
+    for key, value in payload.items():
+        if key != "id":
+            setattr(row, key, value)
+
+
+def _dict_items(value: object) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _text(value: object, default: str = "") -> str:
+    if value is None:
+        return default
+    if isinstance(value, str):
+        stripped = value.strip()
+        return stripped if stripped else default
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    if isinstance(value, dict):
+        for key in ("summary", "text", "content", "value"):
+            if key in value:
+                return _text(value.get(key), default)
+    return default
+
+
+def _optional_text(value: object) -> str | None:
+    text = _text(value)
+    return text or None
+
+
+def _optional_int(value: object) -> int | None:
+    try:
+        if value is None or value == "":
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _string_list(value: object) -> list[str]:
+    if isinstance(value, list):
+        return [_text(item) for item in value if _text(item)]
+    text = _text(value)
+    return [text] if text else []
+
+
+def _plain_dict(value: object) -> dict:
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _summary_dict(value: object) -> dict:
+    if isinstance(value, dict):
+        return dict(value)
+    return {"summary": _text(value)}
+
+
+def _choice(value: object, allowed: set[str], default: str) -> str:
+    text = _text(value).lower()
+    return text if text in allowed else default
+
+
+def _knowledge_state(value: object, default: str) -> str:
+    aliases = {
+        "reader known": "reader_known",
+        "reader unknown": "reader_unknown",
+        "author only": "author_only",
+        "may know": "may_know",
+        "strongly suspects": "strongly_suspects",
+    }
+    allowed = {
+        "known",
+        "unknown",
+        "suspects",
+        "hinted",
+        "partial",
+        "may_know",
+        "reader_known",
+        "reader_unknown",
+        "author_only",
+        "strongly_suspects",
+    }
+    text = _text(value).strip().lower().replace("-", "_")
+    text = aliases.get(text, text)
+    return text if text in allowed else default
+
+
+def _stable_doc_id(*parts: object) -> str:
+    prefix = "_".join(_safe_id_part(part) for part in parts[:2] if _safe_id_part(part)) or "doc"
+    digest = hashlib.sha1("|".join(str(part) for part in parts).encode("utf-8")).hexdigest()[:10]
+    return f"{prefix}_{digest}"
+
+
+def _safe_id_part(value: object) -> str:
+    text = "".join(char.lower() if char.isalnum() else "_" for char in str(value or ""))
+    return "_".join(part for part in text.split("_") if part)[:32]
 
 
 def ensure_structured_prompt(session: Session, chapter: ChapterModel) -> dict:

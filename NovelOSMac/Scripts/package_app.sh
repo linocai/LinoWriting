@@ -3,12 +3,15 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-APP_NAME="NovelOSMac"
-BUNDLE_ID="com.lino.novelosmac"
+APP_NAME="LinoI"
+EXECUTABLE_NAME="NovelOSMac"
+BUNDLE_ID="com.lino.linoi"
 VERSION="0.1.0"
+DEFAULT_ICON_SOURCE="/Users/linotsai/Pictures/GPT Image/rounded-i-appicon-v1.png"
 
 DIST_DIR="${ROOT_DIR}/dist"
 APP_DIR="${DIST_DIR}/${APP_NAME}.app"
+LEGACY_APP_DIR="${DIST_DIR}/NovelOSMac.app"
 CONTENTS_DIR="${APP_DIR}/Contents"
 MACOS_DIR="${CONTENTS_DIR}/MacOS"
 RESOURCES_DIR="${CONTENTS_DIR}/Resources"
@@ -16,7 +19,7 @@ ICON_DIR="${ROOT_DIR}/Resources/AppIcon"
 ICONSET_DIR="${ICON_DIR}/AppIcon.iconset"
 SOURCE_ICON="${ICON_DIR}/AppIcon-1024.png"
 ICNS_PATH="${ICON_DIR}/${APP_NAME}.icns"
-CUSTOM_ICON_SOURCE="${NOVEL_OS_ICON_SOURCE:-${1:-}}"
+CUSTOM_ICON_SOURCE="${NOVEL_OS_ICON_SOURCE:-${1:-${DEFAULT_ICON_SOURCE}}}"
 
 mkdir -p "${ICON_DIR}" "${DIST_DIR}"
 
@@ -46,14 +49,14 @@ iconutil -c icns "${ICONSET_DIR}" -o "${ICNS_PATH}"
 
 swift build --package-path "${ROOT_DIR}" -c release
 BIN_DIR="$(swift build --package-path "${ROOT_DIR}" -c release --show-bin-path)"
-BIN_PATH="${BIN_DIR}/${APP_NAME}"
+BIN_PATH="${BIN_DIR}/${EXECUTABLE_NAME}"
 
 if [[ ! -x "${BIN_PATH}" ]]; then
-  echo "Release executable not found: ${BIN_PATH}" >&2
+    echo "Release executable not found: ${BIN_PATH}" >&2
   exit 1
 fi
 
-rm -rf "${APP_DIR}"
+rm -rf "${APP_DIR}" "${LEGACY_APP_DIR}"
 mkdir -p "${MACOS_DIR}" "${RESOURCES_DIR}"
 cp "${BIN_PATH}" "${MACOS_DIR}/${APP_NAME}"
 cp "${ICNS_PATH}" "${RESOURCES_DIR}/${APP_NAME}.icns"

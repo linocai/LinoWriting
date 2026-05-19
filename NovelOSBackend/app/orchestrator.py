@@ -113,7 +113,7 @@ class ChapterWorkflowOrchestrator:
         novel_id: str,
         chapters: list[dict[str, Any]],
     ) -> AgentResult:
-        return ImportAgent().run(
+        return ImportAgent(self.gateway).run(
             AgentInput(novel_id=novel_id, payload={"chapters": chapters})
         )
 

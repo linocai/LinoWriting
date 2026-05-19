@@ -62,6 +62,57 @@ class FakeGateway:
                 "narrative_style": "第三人称有限视角，冷感克制。",
                 "version": 1,
             },
+            "bootstrap_canon": {
+                "chapter_count": 3,
+                "total_characters": 30,
+                "detected_status": "ready_for_canon_bootstrap",
+                "world_bible_sections": [
+                    {
+                        "title": "开篇基调",
+                        "content": "旧码头是开篇核心地点。",
+                        "tags": ["旧码头"],
+                        "importance": "high",
+                        "activation_policy": "always_in_context_brief",
+                    }
+                ],
+                "character_cards": [
+                    {
+                        "name": "A",
+                        "aliases": [],
+                        "role": "主角",
+                        "stable_traits": ["克制"],
+                        "current_state": "正在调查旧案。",
+                        "dialogue_style": "短句。",
+                        "relationships": [],
+                        "forbidden_behavior": ["不能突然全知旧案真相"],
+                        "last_active_chapter_no": 3,
+                    }
+                ],
+                "memory_facts": [
+                    {
+                        "chapter_no": 1,
+                        "fact_type": "event",
+                        "time_in_story": "第一章",
+                        "summary": "A 收到旧码头线索。",
+                        "participants": ["A"],
+                        "location": "旧码头",
+                        "evidence": "第一章",
+                    }
+                ],
+                "knowledge_matrix": [
+                    {
+                        "fact_title": "B 与旧案有关",
+                        "fact": "B 可能知道旧案线索。",
+                        "truth_status": "author_only",
+                        "author_knowledge": "known",
+                        "reader_knowledge": "hinted",
+                        "character_knowledge": [
+                            {"character_name": "A", "state": "suspects"}
+                        ],
+                        "allowed_narration": "只能写 A 的怀疑，不能确认。",
+                    }
+                ],
+            },
         }
         return LLMResult(
             content=json.dumps(payload_by_schema[schema_name], ensure_ascii=False),
@@ -259,6 +310,19 @@ def test_novel_crud_and_bootstrap_flow(client: TestClient):
     assert analyzed.status_code == 200
     assert analyzed.json()["status"] == "analyzed"
     assert analyzed.json()["analysis"]["chapter_count"] == 3
+    assert analyzed.json()["analysis"]["world_bible_sections"]
+    assert analyzed.json()["analysis"]["character_cards"]
+    assert analyzed.json()["analysis"]["memory_facts"]
+    assert analyzed.json()["analysis"]["knowledge_matrix"]
+
+    world = client.get("/api/novels/novel_test/world-bible").json()
+    characters = client.get("/api/novels/novel_test/characters").json()
+    memory = client.get("/api/novels/novel_test/memory").json()
+    matrix = client.get("/api/novels/novel_test/knowledge-matrix").json()
+    assert world[0]["title"]
+    assert characters[0]["name"]
+    assert memory[0]["created_by"] == "import_agent"
+    assert matrix[0]["allowed_narration"]["summary"] or matrix[0]["allowed_narration"]["text"]
 
     session_factory = client.app.state.testing_session_factory
     with session_factory() as session:
@@ -357,6 +421,25 @@ def test_live_mode_agents_use_injected_gateway(monkeypatch):
     assert results[0].payload["entities"] == ["A", "B", "旧码头"]
     assert results[2].payload["chapter_id"] == "chapter_live"
     assert gateway.calls == ["intent_parser", "context_pack_summary", "structured_prompt"]
+
+
+def test_live_mode_import_agent_generates_bootstrap_canon(monkeypatch):
+    monkeypatch.setenv("NOVEL_OS_LLM_MODE", "live")
+    from app.orchestrator import ChapterWorkflowOrchestrator
+
+    gateway = FakeGateway()
+    result = ChapterWorkflowOrchestrator(gateway).run_bootstrap_analysis(
+        novel_id="novel_live",
+        chapters=[
+            {"chapter_no": 1, "title": "一", "text": "A 收到旧码头线索。"},
+            {"chapter_no": 2, "title": "二", "text": "B 回避 A 的追问。"},
+            {"chapter_no": 3, "title": "三", "text": "C 提供目击者线索。"},
+        ],
+    )
+    assert result.model == "fake-live"
+    assert result.payload["world_bible_sections"][0]["title"] == "开篇基调"
+    assert result.payload["character_cards"][0]["name"] == "A"
+    assert gateway.calls == ["bootstrap_canon"]
 
 
 def test_base_documents_crud_and_character_delete_is_absent(client: TestClient):

@@ -126,8 +126,8 @@ struct VersionsDebugView: View {
     @MainActor
     private func exportRunLog() {
         let panel = NSSavePanel()
-        panel.title = "导出 NovelOSMac 记录"
-        panel.nameFieldStringValue = "NovelOSMac-RunLog.json"
+        panel.title = "导出 LinoI 记录"
+        panel.nameFieldStringValue = "LinoI-RunLog.json"
         panel.allowedContentTypes = [.json]
         panel.canCreateDirectories = true
         panel.isExtensionHidden = false

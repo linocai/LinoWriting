@@ -51,6 +51,40 @@ public enum AnyCodable: Codable, Equatable, Sendable {
     }
 }
 
+private extension AnyCodable {
+    var displayString: String? {
+        switch self {
+        case .string(let value):
+            value
+        case .int(let value):
+            String(value)
+        case .double(let value):
+            String(value)
+        case .bool(let value):
+            value ? "true" : "false"
+        case .object(let value):
+            value["summary"]?.displayString
+                ?? value["text"]?.displayString
+                ?? value["content"]?.displayString
+                ?? value["value"]?.displayString
+        case .array, .null:
+            nil
+        }
+    }
+}
+
+private extension KeyedDecodingContainer {
+    func decodeStringOrSummary(forKey key: Key, default defaultValue: String = "") throws -> String {
+        if let value = try? decode(String.self, forKey: key) {
+            return value
+        }
+        if let value = try? decode(AnyCodable.self, forKey: key) {
+            return value.displayString ?? defaultValue
+        }
+        return defaultValue
+    }
+}
+
 public struct Novel: Identifiable, Codable, Equatable, Sendable {
     public let id: String
     public var title: String
@@ -522,6 +556,61 @@ public struct CharacterCard: Identifiable, Codable, Equatable, Sendable {
     public var forbiddenBehavior: [String]
     public var lastActiveChapterNo: Int?
     public var canonVersion: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case aliases
+        case role
+        case stableTraits
+        case currentState
+        case dialogueStyle
+        case relationships
+        case forbiddenBehavior
+        case lastActiveChapterNo
+        case canonVersion
+    }
+
+    public init(
+        id: String,
+        name: String,
+        aliases: [String],
+        role: String,
+        stableTraits: [String],
+        currentState: String,
+        dialogueStyle: String,
+        relationships: [CharacterRelationship],
+        forbiddenBehavior: [String],
+        lastActiveChapterNo: Int?,
+        canonVersion: Int
+    ) {
+        self.id = id
+        self.name = name
+        self.aliases = aliases
+        self.role = role
+        self.stableTraits = stableTraits
+        self.currentState = currentState
+        self.dialogueStyle = dialogueStyle
+        self.relationships = relationships
+        self.forbiddenBehavior = forbiddenBehavior
+        self.lastActiveChapterNo = lastActiveChapterNo
+        self.canonVersion = canonVersion
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        aliases = try container.decodeIfPresent([String].self, forKey: .aliases) ?? []
+        role = try container.decodeIfPresent(String.self, forKey: .role) ?? ""
+        stableTraits = try container.decodeIfPresent([String].self, forKey: .stableTraits) ?? []
+        currentState = try container.decodeStringOrSummary(forKey: .currentState)
+        dialogueStyle = try container.decodeStringOrSummary(forKey: .dialogueStyle)
+        relationships = try container.decodeIfPresent([CharacterRelationship].self, forKey: .relationships) ?? []
+        forbiddenBehavior = try container.decodeIfPresent([String].self, forKey: .forbiddenBehavior) ?? []
+        lastActiveChapterNo = try container.decodeIfPresent(Int.self, forKey: .lastActiveChapterNo)
+        canonVersion = try container.decodeIfPresent(Int.self, forKey: .canonVersion) ?? 1
+    }
 }
 
 public struct CharacterRelationship: Identifiable, Codable, Equatable, Sendable {
@@ -541,6 +630,49 @@ public struct KnowledgeMatrixEntry: Identifiable, Codable, Equatable, Sendable {
     public var characterKnowledge: [CharacterKnowledge]
     public var allowedNarration: String
     public var canonVersion: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case factTitle
+        case truthStatus
+        case authorKnowledge
+        case readerKnowledge
+        case characterKnowledge
+        case allowedNarration
+        case canonVersion
+    }
+
+    public init(
+        id: String,
+        factTitle: String,
+        truthStatus: String,
+        authorKnowledge: KnowledgeState,
+        readerKnowledge: KnowledgeState,
+        characterKnowledge: [CharacterKnowledge],
+        allowedNarration: String,
+        canonVersion: Int
+    ) {
+        self.id = id
+        self.factTitle = factTitle
+        self.truthStatus = truthStatus
+        self.authorKnowledge = authorKnowledge
+        self.readerKnowledge = readerKnowledge
+        self.characterKnowledge = characterKnowledge
+        self.allowedNarration = allowedNarration
+        self.canonVersion = canonVersion
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        factTitle = try container.decode(String.self, forKey: .factTitle)
+        truthStatus = try container.decodeIfPresent(String.self, forKey: .truthStatus) ?? ""
+        authorKnowledge = try container.decodeIfPresent(KnowledgeState.self, forKey: .authorKnowledge) ?? .unknown
+        readerKnowledge = try container.decodeIfPresent(KnowledgeState.self, forKey: .readerKnowledge) ?? .readerUnknown
+        characterKnowledge = try container.decodeIfPresent([CharacterKnowledge].self, forKey: .characterKnowledge) ?? []
+        allowedNarration = try container.decodeStringOrSummary(forKey: .allowedNarration)
+        canonVersion = try container.decodeIfPresent(Int.self, forKey: .canonVersion) ?? 1
+    }
 }
 
 public struct CharacterKnowledge: Identifiable, Codable, Equatable, Sendable {

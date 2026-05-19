@@ -395,6 +395,46 @@ import Foundation
     #expect(memory[0].canonStatus == "confirmed")
 }
 
+@Test func liveBaseDocumentsDecodeStructuredBackendFields() throws {
+    let charactersJSON = """
+    [
+      {
+        "id": "char_A",
+        "name": "A",
+        "aliases": [],
+        "role": "主角",
+        "stable_traits": ["克制"],
+        "current_state": {"summary": "正在调查旧案。"},
+        "dialogue_style": {"summary": "短句。"},
+        "relationships": [],
+        "forbidden_behavior": ["不能突然全知旧案真相"],
+        "last_active_chapter_no": 3,
+        "canon_version": 1
+      }
+    ]
+    """
+    let characters = try APIJSONCoding.makeDecoder().decode([CharacterCard].self, from: Data(charactersJSON.utf8))
+    #expect(characters[0].currentState == "正在调查旧案。")
+    #expect(characters[0].dialogueStyle == "短句。")
+
+    let matrixJSON = """
+    [
+      {
+        "id": "km_001",
+        "fact_title": "B 与旧案有关",
+        "truth_status": "author_only",
+        "author_knowledge": "known",
+        "reader_knowledge": "hinted",
+        "character_knowledge": [],
+        "allowed_narration": {"text": "只能写怀疑，不能确认。"},
+        "canon_version": 1
+      }
+    ]
+    """
+    let entries = try APIJSONCoding.makeDecoder().decode([KnowledgeMatrixEntry].self, from: Data(matrixJSON.utf8))
+    #expect(entries[0].allowedNarration == "只能写怀疑，不能确认。")
+}
+
 @MainActor
 @Test func knowledgeMatrixStoreLoadsFiltersSavesAndDeletes() async throws {
     let api = MockKnowledgeMatrixAPI()
