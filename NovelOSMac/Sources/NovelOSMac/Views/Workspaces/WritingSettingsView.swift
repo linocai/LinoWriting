@@ -10,11 +10,11 @@ struct WritingSettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                TopBarView(kicker: "写作设置", title: "连接云端与模型") {
+                TopBarView(kicker: "写作设置", title: "连接后端与模型") {
                     Button {
                         Task { await settings.loadLLMProviders() }
                     } label: {
-                        Label("连接云端", systemImage: "arrow.clockwise")
+                        Label("刷新配置", systemImage: "arrow.clockwise")
                     }
                     .buttonStyle(BlueButtonStyle())
                     .disabled(settings.isLoading)
@@ -47,7 +47,7 @@ struct WritingSettingsView: View {
         }
         .background(AppBackgroundView())
         .task {
-            if settings.providers.isEmpty, settings.ownerTokenConfigured {
+            if settings.providers.isEmpty {
                 await settings.loadLLMProviders()
             }
         }
@@ -55,7 +55,7 @@ struct WritingSettingsView: View {
 
     private var connectionCard: some View {
         CardView {
-            CardHeader(title: "云端连接", subtitle: "管理口令只保存在本机 Keychain。")
+            CardHeader(title: "后端连接", subtitle: "本地服务不需要管理口令；只有公网部署时才需要。")
             CardBody {
                 LabeledField("后端地址") {
                     SoftTextField("http://127.0.0.1:7773", text: binding(\.backendURLString))

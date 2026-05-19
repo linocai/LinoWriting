@@ -169,6 +169,86 @@ import Foundation
     #expect(providerJSON.contains("api_key"))
 }
 
+@Test func novelLibraryEndpointsConstructExpectedRequests() throws {
+    let list = Endpoint.listNovels()
+    #expect(list.method == .get)
+    #expect(list.path == "/api/novels")
+
+    let create = try Endpoint.createNovel(NovelCreateRequest(title: "长夜回声", genre: "悬疑"))
+    #expect(create.method == .post)
+    #expect(create.path == "/api/novels")
+    let createBody = try decodeBody(create, as: NovelCreateRequest.self)
+    #expect(createBody.title == "长夜回声")
+
+    let chapter = try Endpoint.createChapter(
+        novelID: "novel_new",
+        request: ChapterCreateRequest(chapterNo: 1, title: "第 1 章")
+    )
+    #expect(chapter.method == .post)
+    #expect(chapter.path == "/api/novels/novel_new/chapters")
+    let chapterBody = try decodeBody(chapter, as: ChapterCreateRequest.self)
+    #expect(chapterBody.chapterNo == 1)
+
+    let importRequest = BootstrapImportRequest(chapters: [
+        BootstrapChapterInput(chapterNo: 1, title: "一", text: "第一章正文"),
+        BootstrapChapterInput(chapterNo: 2, title: "二", text: "第二章正文"),
+        BootstrapChapterInput(chapterNo: 3, title: "三", text: "第三章正文")
+    ])
+    let importEndpoint = try Endpoint.importFirstThreeChapters(novelID: "novel_new", request: importRequest)
+    #expect(importEndpoint.method == .post)
+    #expect(importEndpoint.path == "/api/novels/novel_new/bootstrap/import-first-three-chapters")
+
+    let statusEndpoint = Endpoint.getBootstrapStatus(novelID: "novel_new")
+    #expect(statusEndpoint.method == .get)
+    #expect(statusEndpoint.path == "/api/novels/novel_new/bootstrap/status")
+
+    let analyzeEndpoint = Endpoint.analyzeBootstrap(novelID: "novel_new")
+    #expect(analyzeEndpoint.method == .post)
+    #expect(analyzeEndpoint.path == "/api/novels/novel_new/bootstrap/analyze")
+}
+
+@Test func mockNovelLibraryCreatesNovelAndChapter() async throws {
+    let api = MockNovelLibraryAPI()
+    let novel = try await api.createNovel(NovelCreateRequest(title: "长夜回声", genre: "悬疑"))
+    #expect(novel.title == "长夜回声")
+    #expect(novel.bootstrapStatus == .notStarted)
+
+    let chapter = try await api.createChapter(
+        novelID: novel.id,
+        request: ChapterCreateRequest(chapterNo: 1, title: "第 1 章")
+    )
+    #expect(chapter.novelId == novel.id)
+    #expect(chapter.status == .draftInput)
+
+    let novels = try await api.listNovels()
+    let chapters = try await api.listChapters(novelID: novel.id)
+    #expect(novels.contains(where: { $0.id == novel.id }))
+    #expect(chapters.map(\.chapterNo) == [1])
+}
+
+@Test func mockNovelLibraryImportsAndAnalyzesFirstThreeChapters() async throws {
+    let api = MockNovelLibraryAPI()
+    let novel = try await api.createNovel(NovelCreateRequest(title: "长夜回声", genre: "悬疑"))
+    let request = BootstrapImportRequest(chapters: [
+        BootstrapChapterInput(chapterNo: 1, title: "一", text: "第一章正文第一章正文第一章正文"),
+        BootstrapChapterInput(chapterNo: 2, title: "二", text: "第二章正文第二章正文第二章正文"),
+        BootstrapChapterInput(chapterNo: 3, title: "三", text: "第三章正文第三章正文第三章正文")
+    ])
+
+    let imported = try await api.importFirstThreeChapters(novelID: novel.id, request: request)
+    #expect(imported.status == .imported)
+    #expect(imported.importedChapterCount == 3)
+
+    let analyzed = try await api.analyzeBootstrap(novelID: novel.id)
+    #expect(analyzed.status == .analyzed)
+    let status = try await api.getBootstrapStatus(novelID: novel.id)
+    #expect(status.analysisReady)
+
+    let chapters = try await api.listChapters(novelID: novel.id)
+    #expect(chapters.map(\.chapterNo) == [1, 2, 3])
+    #expect(chapters.allSatisfy { $0.status == .completed })
+}
+
 @Test func liveSnakeCaseFixturesDecode() throws {
     let prompt = try decodeLiveFixture("LiveStructuredPromptSnake", as: StructuredPrompt.self)
     let draft = try decodeLiveFixture("LiveDraftSnake", as: Draft.self)

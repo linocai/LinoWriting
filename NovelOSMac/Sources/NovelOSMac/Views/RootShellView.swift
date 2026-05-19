@@ -5,6 +5,10 @@ private let macOSWindowControlsClearance: CGFloat = 44
 
 struct RootShellView: View {
     @Environment(AppStore.self) private var appStore
+    @Environment(NovelLibraryStore.self) private var novelLibraryStore
+    @Environment(ChapterWorkflowStore.self) private var chapterStore
+    @Environment(BaseDocumentsStore.self) private var baseDocumentsStore
+    @Environment(KnowledgeMatrixStore.self) private var knowledgeStore
 
     var body: some View {
         @Bindable var appStore = appStore
@@ -34,14 +38,27 @@ struct RootShellView: View {
                 }
             }
         }
+        .task {
+            await novelLibraryStore.loadIfNeeded(
+                appStore: appStore,
+                chapterStore: chapterStore,
+                baseDocumentsStore: baseDocumentsStore,
+                knowledgeStore: knowledgeStore
+            )
+        }
     }
 }
 
 struct SidebarView: View {
     @Environment(AppStore.self) private var appStore
+    @Environment(NovelLibraryStore.self) private var novelLibraryStore
     @Environment(ChapterWorkflowStore.self) private var chapterStore
+    @Environment(BaseDocumentsStore.self) private var baseDocumentsStore
+    @Environment(KnowledgeMatrixStore.self) private var knowledgeStore
 
     var body: some View {
+        @Bindable var novelLibraryStore = novelLibraryStore
+
         VStack(alignment: .leading, spacing: 18) {
             novelCard
 
@@ -56,26 +73,65 @@ struct SidebarView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(.regularMaterial)
         .background(AppTheme.sidebarBase.opacity(0.82))
+        .sheet(isPresented: $novelLibraryStore.isShowingNewNovelSheet) {
+            NewNovelSheet()
+                .environment(appStore)
+                .environment(novelLibraryStore)
+                .environment(chapterStore)
+                .environment(baseDocumentsStore)
+                .environment(knowledgeStore)
+        }
     }
 
     private var novelCard: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Current Novel")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(AppTheme.muted)
-            Text(chapterStore.novel.title)
-                .font(.title2.weight(.bold))
-                .foregroundStyle(AppTheme.text)
+            HStack(alignment: .center, spacing: 8) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Current Novel")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(AppTheme.muted)
+                    Text(chapterStore.novel.title)
+                        .font(.title2.weight(.bold))
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.82)
+                        .foregroundStyle(AppTheme.text)
+                }
+
+                Spacer(minLength: 8)
+
+                novelMenu
+
+                Button {
+                    novelLibraryStore.isShowingNewNovelSheet = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 13, weight: .bold))
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(AppTheme.blue)
+                .background(AppTheme.blue.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .help("新建书")
+            }
+
             HStack(spacing: 6) {
-                Text("第 \(chapterStore.chapter.chapterNo) 章")
-                Text("·")
-                Text("Canon v\(chapterStore.novel.currentCanonVersion ?? 0)")
+                if chapterStore.isBootstrapReady {
+                    Text("第 \(chapterStore.chapter.chapterNo) 章")
+                    Text("·")
+                    Text("Canon v\(chapterStore.novel.currentCanonVersion ?? 0)")
+                } else {
+                    Text("等待导入前三章")
+                }
             }
             .font(.callout)
             .foregroundStyle(AppTheme.muted)
             HStack {
                 PillView(text: chapterStore.novel.genre ?? "未分类", tone: .blue)
-                PillView(text: "已导入前三章", tone: .green)
+                PillView(text: chapterStore.novel.bootstrapStatus.displayName, tone: bootstrapTone)
+                Spacer(minLength: 8)
+                Text("\(novelLibraryStore.novels.count) 本")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.muted)
             }
         }
         .padding(14)
@@ -86,6 +142,135 @@ struct SidebarView: View {
                 .stroke(Color.white.opacity(0.80), lineWidth: 1)
         )
         .shadow(color: Color.black.opacity(0.04), radius: 22, x: 0, y: 8)
+    }
+
+    private var novelMenu: some View {
+        Menu {
+            ForEach(novelLibraryStore.sortedNovels) { novel in
+                Button {
+                    Task {
+                        await novelLibraryStore.selectNovel(
+                            novel,
+                            appStore: appStore,
+                            chapterStore: chapterStore,
+                            baseDocumentsStore: baseDocumentsStore,
+                            knowledgeStore: knowledgeStore
+                        )
+                    }
+                } label: {
+                    Label(
+                        novel.title,
+                        systemImage: novel.id == chapterStore.novel.id ? "checkmark.circle.fill" : "book.closed"
+                    )
+                }
+            }
+
+            Divider()
+
+            Button {
+                novelLibraryStore.isShowingNewNovelSheet = true
+            } label: {
+                Label("新建书", systemImage: "plus")
+            }
+        } label: {
+            Image(systemName: "chevron.up.chevron.down")
+                .font(.system(size: 12, weight: .bold))
+                .frame(width: 28, height: 28)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .foregroundStyle(AppTheme.muted)
+        .background(Color.white.opacity(0.58), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .help("切换书")
+    }
+
+    private var bootstrapTone: PillTone {
+        switch chapterStore.novel.bootstrapStatus {
+        case .completed, .analyzed, .imported:
+            .green
+        case .importing, .analyzing:
+            .orange
+        case .failed:
+            .red
+        case .notStarted:
+            .neutral
+        }
+    }
+}
+
+private struct NewNovelSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(AppStore.self) private var appStore
+    @Environment(NovelLibraryStore.self) private var novelLibraryStore
+    @Environment(ChapterWorkflowStore.self) private var chapterStore
+    @Environment(BaseDocumentsStore.self) private var baseDocumentsStore
+    @Environment(KnowledgeMatrixStore.self) private var knowledgeStore
+
+    var body: some View {
+        @Bindable var novelLibraryStore = novelLibraryStore
+
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("新建书")
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(AppTheme.text)
+                Text("创建后会自动生成第 1 章草稿入口，你可以再导入前三章或继续配置基础文件。")
+                    .font(.callout)
+                    .foregroundStyle(AppTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                LabeledField("书名") {
+                    SoftTextField("例如：长夜回声", text: $novelLibraryStore.newNovelTitle)
+                }
+
+                LabeledField("类型") {
+                    SoftTextField("例如：悬疑、现实向、奇幻", text: $novelLibraryStore.newNovelGenre)
+                }
+            }
+
+            if let message = novelLibraryStore.statusMessage {
+                Text(message)
+                    .font(.callout)
+                    .foregroundStyle(novelLibraryStore.error == nil ? AppTheme.muted : AppTheme.red)
+            }
+
+            HStack(spacing: 10) {
+                Spacer()
+                Button("取消") {
+                    novelLibraryStore.isShowingNewNovelSheet = false
+                    dismiss()
+                }
+                .buttonStyle(GhostButtonStyle())
+
+                Button {
+                    Task {
+                        await novelLibraryStore.createNovelAndSelect(
+                            appStore: appStore,
+                            chapterStore: chapterStore,
+                            baseDocumentsStore: baseDocumentsStore,
+                            knowledgeStore: knowledgeStore
+                        )
+                        if !novelLibraryStore.isShowingNewNovelSheet {
+                            dismiss()
+                        }
+                    }
+                } label: {
+                    if novelLibraryStore.isLoading {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Text("创建并切换")
+                    }
+                }
+                .buttonStyle(BlueButtonStyle())
+                .disabled(novelLibraryStore.newNovelTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || novelLibraryStore.isLoading)
+            }
+        }
+        .padding(22)
+        .frame(width: 420)
+        .background(AppBackgroundView())
     }
 }
 

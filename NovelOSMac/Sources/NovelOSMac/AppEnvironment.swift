@@ -18,6 +18,10 @@ enum AppEnvironment {
         apiClientFromSettings() ?? MockAdminSettingsAPI()
     }
 
+    static var novelLibraryAPI: any NovelLibraryAPI {
+        apiClientFromSettings() ?? MockNovelLibraryAPI()
+    }
+
     private static func apiClientFromSettings() -> APIClient? {
         if AppRuntimeSettings.useMockAPI {
             return nil

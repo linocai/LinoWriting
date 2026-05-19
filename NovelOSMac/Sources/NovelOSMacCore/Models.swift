@@ -1,20 +1,243 @@
 import Foundation
 
+public enum AnyCodable: Codable, Equatable, Sendable {
+    case string(String)
+    case int(Int)
+    case double(Double)
+    case bool(Bool)
+    case object([String: AnyCodable])
+    case array([AnyCodable])
+    case null
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() {
+            self = .null
+        } else if let value = try? container.decode(Bool.self) {
+            self = .bool(value)
+        } else if let value = try? container.decode(Int.self) {
+            self = .int(value)
+        } else if let value = try? container.decode(Double.self) {
+            self = .double(value)
+        } else if let value = try? container.decode(String.self) {
+            self = .string(value)
+        } else if let value = try? container.decode([String: AnyCodable].self) {
+            self = .object(value)
+        } else if let value = try? container.decode([AnyCodable].self) {
+            self = .array(value)
+        } else {
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Unsupported JSON value.")
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .string(let value):
+            try container.encode(value)
+        case .int(let value):
+            try container.encode(value)
+        case .double(let value):
+            try container.encode(value)
+        case .bool(let value):
+            try container.encode(value)
+        case .object(let value):
+            try container.encode(value)
+        case .array(let value):
+            try container.encode(value)
+        case .null:
+            try container.encodeNil()
+        }
+    }
+}
+
 public struct Novel: Identifiable, Codable, Equatable, Sendable {
     public let id: String
     public var title: String
     public var genre: String?
+    public var status: String
+    public var language: String
     public var currentChapterNo: Int?
     public var currentCanonVersion: Int?
     public var bootstrapStatus: BootstrapStatus
+
+    public init(
+        id: String,
+        title: String,
+        genre: String?,
+        status: String = "active",
+        language: String = "zh-Hans",
+        currentChapterNo: Int?,
+        currentCanonVersion: Int?,
+        bootstrapStatus: BootstrapStatus
+    ) {
+        self.id = id
+        self.title = title
+        self.genre = genre
+        self.status = status
+        self.language = language
+        self.currentChapterNo = currentChapterNo
+        self.currentCanonVersion = currentCanonVersion
+        self.bootstrapStatus = bootstrapStatus
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case genre
+        case status
+        case language
+        case currentChapterNo
+        case currentCanonVersion
+        case bootstrapStatus
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        genre = try container.decodeIfPresent(String.self, forKey: .genre)
+        status = try container.decodeIfPresent(String.self, forKey: .status) ?? "active"
+        language = try container.decodeIfPresent(String.self, forKey: .language) ?? "zh-Hans"
+        currentChapterNo = try container.decodeIfPresent(Int.self, forKey: .currentChapterNo)
+        currentCanonVersion = try container.decodeIfPresent(Int.self, forKey: .currentCanonVersion)
+        bootstrapStatus = try container.decode(BootstrapStatus.self, forKey: .bootstrapStatus)
+    }
 }
 
-public enum BootstrapStatus: String, Codable, Equatable, Sendable {
-    case notStarted
+public struct NovelCreateRequest: Codable, Equatable, Sendable {
+    public var title: String
+    public var genre: String?
+    public var language: String
+
+    public init(title: String, genre: String?, language: String = "zh-Hans") {
+        self.title = title
+        self.genre = genre
+        self.language = language
+    }
+}
+
+public struct ChapterCreateRequest: Codable, Equatable, Sendable {
+    public var chapterNo: Int
+    public var title: String?
+    public var targetWordCount: Int
+
+    public init(chapterNo: Int, title: String?, targetWordCount: Int = 3000) {
+        self.chapterNo = chapterNo
+        self.title = title
+        self.targetWordCount = targetWordCount
+    }
+}
+
+public struct BootstrapChapterInput: Codable, Equatable, Sendable {
+    public var chapterNo: Int
+    public var title: String?
+    public var text: String
+
+    public init(chapterNo: Int, title: String?, text: String) {
+        self.chapterNo = chapterNo
+        self.title = title
+        self.text = text
+    }
+}
+
+public struct BootstrapImportRequest: Codable, Equatable, Sendable {
+    public var chapters: [BootstrapChapterInput]
+
+    public init(chapters: [BootstrapChapterInput]) {
+        self.chapters = chapters
+    }
+}
+
+public struct NovelBootstrapStatus: Codable, Equatable, Sendable {
+    public var novelId: String
+    public var status: BootstrapStatus
+    public var importId: String?
+    public var importedChapterCount: Int
+    public var analysisReady: Bool
+    public var updatedAt: Date?
+
+    public init(
+        novelId: String,
+        status: BootstrapStatus,
+        importId: String?,
+        importedChapterCount: Int,
+        analysisReady: Bool,
+        updatedAt: Date?
+    ) {
+        self.novelId = novelId
+        self.status = status
+        self.importId = importId
+        self.importedChapterCount = importedChapterCount
+        self.analysisReady = analysisReady
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct BootstrapAnalyzeResult: Codable, Equatable, Sendable {
+    public var novelId: String
+    public var status: BootstrapStatus
+    public var importId: String
+    public var analysis: [String: AnyCodable]
+
+    public init(novelId: String, status: BootstrapStatus, importId: String, analysis: [String: AnyCodable]) {
+        self.novelId = novelId
+        self.status = status
+        self.importId = importId
+        self.analysis = analysis
+    }
+}
+
+public enum BootstrapStatus: String, Equatable, Sendable {
+    case notStarted = "not_started"
     case importing
+    case imported
     case analyzing
+    case analyzed
     case completed
     case failed
+
+    public var displayName: String {
+        switch self {
+        case .notStarted: "未导入"
+        case .importing: "导入中"
+        case .imported: "已导入"
+        case .analyzing: "分析中"
+        case .analyzed: "已分析"
+        case .completed: "已完成"
+        case .failed: "失败"
+        }
+    }
+}
+
+extension BootstrapStatus: Codable {
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+        switch rawValue {
+        case "notStarted", "not_started":
+            self = .notStarted
+        case "importing":
+            self = .importing
+        case "imported":
+            self = .imported
+        case "analyzing":
+            self = .analyzing
+        case "analyzed":
+            self = .analyzed
+        case "completed":
+            self = .completed
+        case "failed":
+            self = .failed
+        default:
+            self = .notStarted
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 
 public struct Chapter: Identifiable, Codable, Equatable, Sendable {

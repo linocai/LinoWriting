@@ -22,6 +22,17 @@ Run NovelOS locally while HZ cloud deployment is blocked, with the macOS app tem
   - `GET http://127.0.0.1:7773/healthz`
   - `GET http://127.0.0.1:7773/api/novels`
 - Repackaged macOS app after local URL switch.
+- Added macOS book library support:
+  - Sidebar can list/switch books from `GET /api/novels`.
+  - Sidebar can create a new book via `POST /api/novels`.
+  - Switching books reloads Chapter Studio, Base Files, and Knowledge Matrix for the selected novel.
+- Corrected the new-book bootstrap workflow:
+  - New books no longer jump straight into Chapter Studio.
+  - Chapters List shows a first-three-chapters import panel when bootstrap is not ready.
+  - Import calls `POST /api/novels/{novel_id}/bootstrap/import-first-three-chapters`.
+  - Analyze calls `POST /api/novels/{novel_id}/bootstrap/analyze`.
+  - After import/analyze, the app creates chapter 4 and switches to Chapter Studio.
+- Swift tests passed after book library/bootstrap work: 21 tests.
 
 ## Current Blocker
 

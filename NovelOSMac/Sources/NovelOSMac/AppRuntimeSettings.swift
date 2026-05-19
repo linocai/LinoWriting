@@ -130,7 +130,7 @@ final class ApplicationSettingsStore {
         defer { isLoading = false }
         do {
             apply(try await api.getLLMProviders())
-            statusMessage = "LLM 配置已加载。"
+            statusMessage = "LLM 配置已加载：\(providers.count) 个 Provider。"
         } catch {
             handle(error)
         }

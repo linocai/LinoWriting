@@ -16,6 +16,294 @@ public final class AppStore {
 
 @MainActor
 @Observable
+public final class NovelLibraryStore {
+    @ObservationIgnored private let api: any NovelLibraryAPI
+    @ObservationIgnored private var hasLoaded = false
+
+    public var novels: [Novel] = [MockData.novel]
+    public var selectedNovelID: String? = MockData.novel.id
+    public var newNovelTitle: String = ""
+    public var newNovelGenre: String = ""
+    public var importChapter1Title: String = "第 1 章"
+    public var importChapter2Title: String = "第 2 章"
+    public var importChapter3Title: String = "第 3 章"
+    public var importChapter1Text: String = ""
+    public var importChapter2Text: String = ""
+    public var importChapter3Text: String = ""
+    public var isShowingNewNovelSheet: Bool = false
+    public var isLoading: Bool = false
+    public var statusMessage: String?
+    public var error: APIError?
+
+    public init(api: any NovelLibraryAPI = MockNovelLibraryAPI()) {
+        self.api = api
+    }
+
+    public var sortedNovels: [Novel] {
+        novels.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+    }
+
+    public var selectedNovel: Novel? {
+        guard let selectedNovelID else { return nil }
+        return novels.first { $0.id == selectedNovelID }
+    }
+
+    public var canImportFirstThreeChapters: Bool {
+        [importChapter1Text, importChapter2Text, importChapter3Text].allSatisfy {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines).count >= 20
+        }
+    }
+
+    public func loadIfNeeded(
+        appStore: AppStore,
+        chapterStore: ChapterWorkflowStore,
+        baseDocumentsStore: BaseDocumentsStore,
+        knowledgeStore: KnowledgeMatrixStore
+    ) async {
+        guard !hasLoaded else { return }
+        await reloadAndSelectCurrent(
+            appStore: appStore,
+            chapterStore: chapterStore,
+            baseDocumentsStore: baseDocumentsStore,
+            knowledgeStore: knowledgeStore
+        )
+    }
+
+    public func reloadAndSelectCurrent(
+        appStore: AppStore,
+        chapterStore: ChapterWorkflowStore,
+        baseDocumentsStore: BaseDocumentsStore,
+        knowledgeStore: KnowledgeMatrixStore
+    ) async {
+        isLoading = true
+        error = nil
+        defer { isLoading = false }
+
+        do {
+            let loaded = try await api.listNovels()
+            novels = loaded.isEmpty ? novels : loaded
+            hasLoaded = true
+            let preferredID = selectedNovelID ?? appStore.selectedNovelID ?? chapterStore.novel.id
+            let target = novels.first { $0.id == preferredID } ?? sortedNovels.first
+            if let target {
+                try await applySelection(
+                    target,
+                    appStore: appStore,
+                    chapterStore: chapterStore,
+                    baseDocumentsStore: baseDocumentsStore,
+                    knowledgeStore: knowledgeStore
+                )
+            }
+            statusMessage = "书库已加载。"
+        } catch {
+            handle(error)
+        }
+    }
+
+    public func selectNovel(
+        _ novel: Novel,
+        appStore: AppStore,
+        chapterStore: ChapterWorkflowStore,
+        baseDocumentsStore: BaseDocumentsStore,
+        knowledgeStore: KnowledgeMatrixStore
+    ) async {
+        isLoading = true
+        error = nil
+        defer { isLoading = false }
+
+        do {
+            try await applySelection(
+                novel,
+                appStore: appStore,
+                chapterStore: chapterStore,
+                baseDocumentsStore: baseDocumentsStore,
+                knowledgeStore: knowledgeStore
+            )
+            statusMessage = "已切换到《\(novel.title)》。"
+        } catch {
+            handle(error)
+        }
+    }
+
+    public func createNovelAndSelect(
+        appStore: AppStore,
+        chapterStore: ChapterWorkflowStore,
+        baseDocumentsStore: BaseDocumentsStore,
+        knowledgeStore: KnowledgeMatrixStore
+    ) async {
+        let title = newNovelTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else {
+            statusMessage = "书名不能为空。"
+            return
+        }
+
+        isLoading = true
+        error = nil
+        defer { isLoading = false }
+
+        do {
+            let novel = try await api.createNovel(
+                NovelCreateRequest(
+                    title: title,
+                    genre: newNovelGenre.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                )
+            )
+            if !novels.contains(where: { $0.id == novel.id }) {
+                novels.append(novel)
+            }
+            try await applySelection(
+                novel,
+                appStore: appStore,
+                chapterStore: chapterStore,
+                baseDocumentsStore: baseDocumentsStore,
+                knowledgeStore: knowledgeStore
+            )
+            newNovelTitle = ""
+            newNovelGenre = ""
+            isShowingNewNovelSheet = false
+            statusMessage = "已创建《\(novel.title)》。"
+        } catch {
+            handle(error)
+        }
+    }
+
+    public func importFirstThreeChaptersAndPrepareNext(
+        appStore: AppStore,
+        chapterStore: ChapterWorkflowStore,
+        baseDocumentsStore: BaseDocumentsStore,
+        knowledgeStore: KnowledgeMatrixStore
+    ) async {
+        guard let selectedNovel else {
+            statusMessage = "请先选择一本书。"
+            return
+        }
+        guard canImportFirstThreeChapters else {
+            statusMessage = "请完整粘贴前三章正文，每章至少 20 个字。"
+            return
+        }
+
+        isLoading = true
+        error = nil
+        defer { isLoading = false }
+
+        do {
+            let request = BootstrapImportRequest(
+                chapters: [
+                    BootstrapChapterInput(chapterNo: 1, title: importChapter1Title.nilIfEmpty ?? "第 1 章", text: importChapter1Text),
+                    BootstrapChapterInput(chapterNo: 2, title: importChapter2Title.nilIfEmpty ?? "第 2 章", text: importChapter2Text),
+                    BootstrapChapterInput(chapterNo: 3, title: importChapter3Title.nilIfEmpty ?? "第 3 章", text: importChapter3Text)
+                ]
+            )
+            _ = try await api.importFirstThreeChapters(novelID: selectedNovel.id, request: request)
+            let analysis = try await api.analyzeBootstrap(novelID: selectedNovel.id)
+            var chapters = try await api.listChapters(novelID: selectedNovel.id)
+                .sorted { $0.chapterNo < $1.chapterNo }
+            if !chapters.contains(where: { $0.chapterNo == 4 }) {
+                let next = try await api.createChapter(
+                    novelID: selectedNovel.id,
+                    request: ChapterCreateRequest(chapterNo: 4, title: "第 4 章")
+                )
+                chapters.append(next)
+                chapters.sort { $0.chapterNo < $1.chapterNo }
+            }
+
+            var updatedNovel = selectedNovel
+            updatedNovel.bootstrapStatus = analysis.status
+            updatedNovel.currentChapterNo = 4
+            updatedNovel.currentCanonVersion = updatedNovel.currentCanonVersion ?? 1
+            replaceNovel(updatedNovel)
+            clearImportDrafts()
+
+            try await applySelection(
+                updatedNovel,
+                appStore: appStore,
+                chapterStore: chapterStore,
+                baseDocumentsStore: baseDocumentsStore,
+                knowledgeStore: knowledgeStore,
+                preloadedChapters: chapters
+            )
+            appStore.selectedWorkspace = .chapterStudio
+            statusMessage = "前三章已导入并分析，已准备第 4 章。"
+        } catch {
+            handle(error)
+        }
+    }
+
+    private func applySelection(
+        _ novel: Novel,
+        appStore: AppStore,
+        chapterStore: ChapterWorkflowStore,
+        baseDocumentsStore: BaseDocumentsStore,
+        knowledgeStore: KnowledgeMatrixStore,
+        preloadedChapters: [Chapter]? = nil
+    ) async throws {
+        let chapters: [Chapter]
+        if let preloadedChapters {
+            chapters = preloadedChapters
+        } else {
+            chapters = try await chaptersReadyForNovel(novel)
+        }
+        var selectedNovel = novel
+        selectedNovel.currentChapterNo = activeChapter(from: chapters, novel: novel)?.chapterNo
+        replaceNovel(selectedNovel)
+
+        selectedNovelID = selectedNovel.id
+        appStore.selectedNovelID = selectedNovel.id
+        appStore.selectedChapterID = activeChapter(from: chapters, novel: selectedNovel)?.id
+
+        await chapterStore.switchToNovel(selectedNovel, chapters: chapters)
+        baseDocumentsStore.switchNovel(
+            novelID: selectedNovel.id,
+            currentCanonVersion: selectedNovel.currentCanonVersion,
+            currentChapterNo: selectedNovel.currentChapterNo
+        )
+        knowledgeStore.switchNovel(
+            novelID: selectedNovel.id,
+            currentCanonVersion: selectedNovel.currentCanonVersion
+        )
+        await baseDocumentsStore.loadDocuments(force: true)
+        await knowledgeStore.loadEntries(force: true)
+    }
+
+    private func chaptersReadyForNovel(_ novel: Novel) async throws -> [Chapter] {
+        try await api.listChapters(novelID: novel.id)
+            .sorted { $0.chapterNo < $1.chapterNo }
+    }
+
+    private func activeChapter(from chapters: [Chapter], novel: Novel) -> Chapter? {
+        if let current = novel.currentChapterNo,
+           let matched = chapters.first(where: { $0.chapterNo == current }) {
+            return matched
+        }
+        return chapters.first(where: { $0.status != .completed }) ?? chapters.last ?? chapters.first
+    }
+
+    private func replaceNovel(_ novel: Novel) {
+        if let index = novels.firstIndex(where: { $0.id == novel.id }) {
+            novels[index] = novel
+        } else {
+            novels.append(novel)
+        }
+    }
+
+    private func clearImportDrafts() {
+        importChapter1Title = "第 1 章"
+        importChapter2Title = "第 2 章"
+        importChapter3Title = "第 3 章"
+        importChapter1Text = ""
+        importChapter2Text = ""
+        importChapter3Text = ""
+    }
+
+    private func handle(_ error: Error) {
+        let apiError = error as? APIError ?? APIError.transport(String(describing: error))
+        self.error = apiError
+        statusMessage = apiError.userMessage
+    }
+}
+
+@MainActor
+@Observable
 public final class ChapterWorkflowStore {
     @ObservationIgnored private let api: any ChapterWorkflowAPI
 
@@ -48,7 +336,16 @@ public final class ChapterWorkflowStore {
     }
 
     public var canGenerateStructuredPrompt: Bool {
-        promptDraft.trimmingCharacters(in: .whitespacesAndNewlines).count >= 10
+        isBootstrapReady && promptDraft.trimmingCharacters(in: .whitespacesAndNewlines).count >= 10
+    }
+
+    public var isBootstrapReady: Bool {
+        switch novel.bootstrapStatus {
+        case .imported, .analyzed, .completed:
+            return true
+        case .notStarted, .importing, .analyzing, .failed:
+            return false
+        }
     }
 
     public var finalApprovalBlockedReason: String? {
@@ -83,6 +380,39 @@ public final class ChapterWorkflowStore {
         statusMessage = "Prompt 草稿已保存。"
     }
 
+    public func switchToNovel(_ selectedNovel: Novel, chapters loadedChapters: [Chapter]) async {
+        novel = selectedNovel
+        chapters = loadedChapters.sorted { $0.chapterNo < $1.chapterNo }
+        if let active = activeChapter(from: chapters, novel: selectedNovel) {
+            chapter = active
+        } else {
+            chapter = placeholderChapter(for: selectedNovel)
+        }
+
+        currentStep = step(for: chapter.status)
+        highestUnlockedStep = currentStep
+        promptDraft = ""
+        structuredPrompt = nil
+        draft = nil
+        reviewFeedback = ""
+        auditSummary = nil
+        canonPatch = nil
+        selectedReadableChapterID = chapters.first?.id
+
+        var loadedDrafts: [String: Draft] = [:]
+        for loadedChapter in chapters {
+            if let latestDraft = try? await api.getLatestDraft(chapterID: loadedChapter.id) {
+                loadedDrafts[loadedChapter.id] = latestDraft
+            }
+        }
+        chapterDrafts = loadedDrafts
+        if let currentDraft = loadedDrafts[chapter.id] {
+            draft = currentDraft
+            auditSummary = currentDraft.auditSummary
+        }
+        statusMessage = "已加载《\(selectedNovel.title)》。"
+    }
+
     public func loadReadableChapters() async {
         isLoading = true
         error = nil
@@ -92,6 +422,16 @@ public final class ChapterWorkflowStore {
             let loadedChapters = try await api.listChapters(novelID: novel.id)
                 .sorted { $0.chapterNo < $1.chapterNo }
             var loadedDrafts: [String: Draft] = [:]
+
+            if loadedChapters.isEmpty {
+                chapters = []
+                chapterDrafts = [:]
+                selectedReadableChapterID = nil
+                draft = nil
+                auditSummary = nil
+                statusMessage = "当前书籍还没有章节。"
+                return
+            }
 
             for loadedChapter in loadedChapters {
                 if let latestDraft = try? await api.getLatestDraft(chapterID: loadedChapter.id) {
@@ -317,6 +657,43 @@ public final class ChapterWorkflowStore {
         return try await api.getStructuredPrompt(chapterID: chapter.id)
     }
 
+    private func activeChapter(from chapters: [Chapter], novel: Novel) -> Chapter? {
+        if let current = novel.currentChapterNo,
+           let matched = chapters.first(where: { $0.chapterNo == current }) {
+            return matched
+        }
+        return chapters.first(where: { $0.status != .completed }) ?? chapters.last ?? chapters.first
+    }
+
+    private func step(for status: ChapterStatus) -> ChapterStep {
+        switch status {
+        case .draftInput, .imported:
+            .promptInput
+        case .structuredPromptReady:
+            .structuredPromptReview
+        case .structuredPromptApproved, .draftGenerated, .revisionRequired:
+            .draftReview
+        case .draftApproved:
+            .finalApproval
+        case .canonPatchPending, .completed:
+            .canonPatchReview
+        }
+    }
+
+    private func placeholderChapter(for novel: Novel) -> Chapter {
+        Chapter(
+            id: "\(novel.id)_chapter_001",
+            novelId: novel.id,
+            chapterNo: 1,
+            title: "第 1 章",
+            status: .draftInput,
+            targetWordCount: 3000,
+            approvedVersionId: nil,
+            currentVersionId: nil,
+            canonVersionUsed: novel.currentCanonVersion
+        )
+    }
+
     private func handle(_ error: Error) {
         let apiError = error as? APIError ?? APIError.transport(String(describing: error))
         self.error = apiError
@@ -329,7 +706,9 @@ public final class ChapterWorkflowStore {
 public final class BaseDocumentsStore {
     @ObservationIgnored private let api: any BaseDocumentsAPI
 
-    public let novelID: String
+    public var novelID: String
+    public var currentCanonVersion: Int?
+    public var currentChapterNo: Int?
     public var worldBibleSections: [WorldBibleSection]
     public var characterCards: [CharacterCard]
     public var memoryFacts: [MemoryFact]
@@ -344,6 +723,8 @@ public final class BaseDocumentsStore {
     public init(api: any BaseDocumentsAPI = MockBaseDocumentsAPI(), novelID: String = MockData.novel.id) {
         self.api = api
         self.novelID = novelID
+        currentCanonVersion = MockData.novel.currentCanonVersion
+        currentChapterNo = MockData.chapter.chapterNo
         worldBibleSections = MockData.worldBibleSections
         characterCards = MockData.characterCards
         memoryFacts = MockData.memoryFacts
@@ -355,6 +736,19 @@ public final class BaseDocumentsStore {
             return memoryFacts
         }
         return memoryFacts.filter { $0.chapterNo == chapterNo }
+    }
+
+    public func switchNovel(novelID: String, currentCanonVersion: Int?, currentChapterNo: Int?) {
+        self.novelID = novelID
+        self.currentCanonVersion = currentCanonVersion
+        self.currentChapterNo = currentChapterNo
+        worldBibleSections = []
+        characterCards = []
+        memoryFacts = []
+        memoryChapterFilter = ""
+        selectedBaseDocument = .worldBible
+        statusMessage = nil
+        error = nil
     }
 
     public func loadDocuments(force: Bool = false) async {
@@ -389,7 +783,7 @@ public final class BaseDocumentsStore {
                     tags: [],
                     importance: .medium,
                     activationPolicy: .manualOnly,
-                    canonVersion: MockData.novel.currentCanonVersion ?? 12,
+                    canonVersion: currentCanonVersion ?? 1,
                     updatedAt: Date()
                 ),
                 novelID: novelID
@@ -420,7 +814,7 @@ public final class BaseDocumentsStore {
                     relationships: [],
                     forbiddenBehavior: [],
                     lastActiveChapterNo: nil,
-                    canonVersion: MockData.novel.currentCanonVersion ?? 12
+                    canonVersion: currentCanonVersion ?? 1
                 ),
                 novelID: novelID
             )
@@ -441,14 +835,14 @@ public final class BaseDocumentsStore {
             let created = try await api.createMemoryFact(
                 MemoryFact(
                     id: "mem_\(UUID().uuidString)",
-                    chapterNo: MockData.chapter.chapterNo,
+                    chapterNo: currentChapterNo ?? 1,
                     factType: "event",
                     summary: "",
                     participants: [],
                     location: nil,
                     evidence: "手动添加",
                     canonStatus: "confirmed",
-                    canonVersion: MockData.novel.currentCanonVersion ?? 12
+                    canonVersion: currentCanonVersion ?? 1
                 ),
                 novelID: novelID
             )
@@ -468,7 +862,7 @@ public final class BaseDocumentsStore {
                 targetCharacterName: "关联人物",
                 relationshipSummary: "",
                 currentTension: nil,
-                lastChangedChapterNo: MockData.chapter.chapterNo
+                lastChangedChapterNo: currentChapterNo
             )
         )
     }
@@ -547,7 +941,8 @@ public final class BaseDocumentsStore {
 public final class KnowledgeMatrixStore {
     @ObservationIgnored private let api: any KnowledgeMatrixAPI
 
-    public let novelID: String
+    public var novelID: String
+    public var currentCanonVersion: Int?
     public var entries: [KnowledgeMatrixEntry]
     public var visibleCharacters: [String]
     public var filterText: String = ""
@@ -562,6 +957,7 @@ public final class KnowledgeMatrixStore {
     public init(api: any KnowledgeMatrixAPI = MockKnowledgeMatrixAPI(), novelID: String = MockData.novel.id) {
         self.api = api
         self.novelID = novelID
+        currentCanonVersion = MockData.novel.currentCanonVersion
         entries = MockData.knowledgeEntries
         visibleCharacters = ["A", "B", "C"]
     }
@@ -587,6 +983,19 @@ public final class KnowledgeMatrixStore {
 
             return textMatches && characterMatches && stateMatches
         }
+    }
+
+    public func switchNovel(novelID: String, currentCanonVersion: Int?) {
+        self.novelID = novelID
+        self.currentCanonVersion = currentCanonVersion
+        entries = []
+        visibleCharacters = []
+        filterText = ""
+        selectedState = nil
+        selectedCharacterName = nil
+        selectedEntryID = nil
+        statusMessage = nil
+        error = nil
     }
 
     public func loadEntries(force: Bool = false) async {
@@ -620,7 +1029,7 @@ public final class KnowledgeMatrixStore {
                         CharacterKnowledge(characterId: "char_\($0)", characterName: $0, state: .unknown)
                     },
                     allowedNarration: "",
-                    canonVersion: MockData.novel.currentCanonVersion ?? 12
+                    canonVersion: currentCanonVersion ?? 1
                 ),
                 novelID: novelID
             )
@@ -687,5 +1096,11 @@ public final class KnowledgeMatrixStore {
         let apiError = error as? APIError ?? APIError.transport(String(describing: error))
         self.error = apiError
         statusMessage = apiError.userMessage
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }

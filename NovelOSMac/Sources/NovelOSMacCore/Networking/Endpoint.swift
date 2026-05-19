@@ -49,6 +49,30 @@ public struct Endpoint: Equatable, Sendable {
 }
 
 public extension Endpoint {
+    static func listNovels() -> Endpoint {
+        Endpoint(method: .get, path: "/api/novels")
+    }
+
+    static func createNovel(_ request: NovelCreateRequest) throws -> Endpoint {
+        try json(.post, "/api/novels", request)
+    }
+
+    static func createChapter(novelID: String, request: ChapterCreateRequest) throws -> Endpoint {
+        try json(.post, "/api/novels/\(novelID)/chapters", request)
+    }
+
+    static func importFirstThreeChapters(novelID: String, request: BootstrapImportRequest) throws -> Endpoint {
+        try json(.post, "/api/novels/\(novelID)/bootstrap/import-first-three-chapters", request)
+    }
+
+    static func getBootstrapStatus(novelID: String) -> Endpoint {
+        Endpoint(method: .get, path: "/api/novels/\(novelID)/bootstrap/status")
+    }
+
+    static func analyzeBootstrap(novelID: String) -> Endpoint {
+        Endpoint(method: .post, path: "/api/novels/\(novelID)/bootstrap/analyze")
+    }
+
     static func getLLMProviders() -> Endpoint {
         Endpoint(method: .get, path: "/api/admin/llm/providers")
     }

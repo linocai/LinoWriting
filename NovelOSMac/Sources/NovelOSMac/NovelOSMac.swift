@@ -4,6 +4,7 @@ import SwiftUI
 @main
 struct NovelOSMacApp: App {
     @State private var appStore = AppStore()
+    @State private var novelLibraryStore = NovelLibraryStore(api: AppEnvironment.novelLibraryAPI)
     @State private var chapterStore = ChapterWorkflowStore(api: AppEnvironment.chapterWorkflowAPI)
     @State private var baseDocumentsStore = BaseDocumentsStore(api: AppEnvironment.baseDocumentsAPI)
     @State private var knowledgeStore = KnowledgeMatrixStore(api: AppEnvironment.knowledgeMatrixAPI)
@@ -13,6 +14,7 @@ struct NovelOSMacApp: App {
         WindowGroup("NovelOSMac") {
             RootShellView()
                 .environment(appStore)
+                .environment(novelLibraryStore)
                 .environment(chapterStore)
                 .environment(baseDocumentsStore)
                 .environment(knowledgeStore)

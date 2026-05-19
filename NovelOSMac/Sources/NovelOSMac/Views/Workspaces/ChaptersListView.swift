@@ -3,32 +3,46 @@ import SwiftUI
 
 struct ChaptersListView: View {
     @Environment(AppStore.self) private var appStore
+    @Environment(NovelLibraryStore.self) private var novelLibraryStore
     @Environment(ChapterWorkflowStore.self) private var chapterStore
+    @Environment(BaseDocumentsStore.self) private var baseDocumentsStore
+    @Environment(KnowledgeMatrixStore.self) private var knowledgeStore
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                TopBarView(kicker: "章节列表", title: "查看已导入和已生成的正文") {
-                    Button {
-                        appStore.selectedWorkspace = .chapterStudio
-                    } label: {
-                        Label("继续写当前章", systemImage: "square.and.pencil")
+                TopBarView(kicker: "章节列表", title: chapterStore.isBootstrapReady ? "查看已导入和已生成的正文" : "先导入前三章") {
+                    if chapterStore.isBootstrapReady {
+                        Button {
+                            appStore.selectedWorkspace = .chapterStudio
+                        } label: {
+                            Label("继续写当前章", systemImage: "square.and.pencil")
+                        }
+                        .buttonStyle(BlueButtonStyle())
                     }
-                    .buttonStyle(BlueButtonStyle())
                 }
 
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .top, spacing: 16) {
-                        chapterListCard
-                            .frame(minWidth: 340, idealWidth: 420, maxWidth: 460)
-                        chapterReaderCard
-                            .frame(maxWidth: .infinity)
-                    }
+                if chapterStore.isBootstrapReady {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .top, spacing: 16) {
+                            chapterListCard
+                                .frame(minWidth: 340, idealWidth: 420, maxWidth: 460)
+                            chapterReaderCard
+                                .frame(maxWidth: .infinity)
+                        }
 
-                    VStack(alignment: .leading, spacing: 16) {
-                        chapterListCard
-                        chapterReaderCard
+                        VStack(alignment: .leading, spacing: 16) {
+                            chapterListCard
+                            chapterReaderCard
+                        }
                     }
+                } else {
+                    BootstrapImportPanel()
+                        .environment(appStore)
+                        .environment(novelLibraryStore)
+                        .environment(chapterStore)
+                        .environment(baseDocumentsStore)
+                        .environment(knowledgeStore)
                 }
             }
             .padding(AppTheme.pagePadding)
@@ -163,6 +177,109 @@ struct ChaptersListView: View {
             return "\(canonLabel(for: chapter)) · 暂无正文"
         }
         return "\(draft.wordCount) 字 · 版本 \(draft.versionNo) · \(canonLabel(for: chapter))"
+    }
+}
+
+private struct BootstrapImportPanel: View {
+    @Environment(AppStore.self) private var appStore
+    @Environment(NovelLibraryStore.self) private var novelLibraryStore
+    @Environment(ChapterWorkflowStore.self) private var chapterStore
+    @Environment(BaseDocumentsStore.self) private var baseDocumentsStore
+    @Environment(KnowledgeMatrixStore.self) private var knowledgeStore
+
+    var body: some View {
+        @Bindable var novelLibraryStore = novelLibraryStore
+
+        CardView {
+            CardHeader(
+                title: "导入前三章",
+                subtitle: "新书必须先导入第 1、2、3 章。系统会保存原文、分析基础资料，然后自动准备第 4 章作为当前写作章。"
+            ) {
+                PillView(text: chapterStore.novel.bootstrapStatus.displayName, tone: .orange)
+            }
+
+            CardBody {
+                VStack(alignment: .leading, spacing: 14) {
+                    ChapterImportEditor(
+                        chapterNumber: 1,
+                        title: $novelLibraryStore.importChapter1Title,
+                        text: $novelLibraryStore.importChapter1Text
+                    )
+                    ChapterImportEditor(
+                        chapterNumber: 2,
+                        title: $novelLibraryStore.importChapter2Title,
+                        text: $novelLibraryStore.importChapter2Text
+                    )
+                    ChapterImportEditor(
+                        chapterNumber: 3,
+                        title: $novelLibraryStore.importChapter3Title,
+                        text: $novelLibraryStore.importChapter3Text
+                    )
+                }
+
+                if let message = novelLibraryStore.statusMessage {
+                    StatusBanner(message: message, tone: novelLibraryStore.error == nil ? .blue : .red)
+                }
+            }
+
+            CardFooter {
+                Button {
+                    Task {
+                        await novelLibraryStore.importFirstThreeChaptersAndPrepareNext(
+                            appStore: appStore,
+                            chapterStore: chapterStore,
+                            baseDocumentsStore: baseDocumentsStore,
+                            knowledgeStore: knowledgeStore
+                        )
+                    }
+                } label: {
+                    if novelLibraryStore.isLoading {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Label("导入并分析前三章", systemImage: "tray.and.arrow.down")
+                    }
+                }
+                .buttonStyle(BlueButtonStyle())
+                .disabled(!novelLibraryStore.canImportFirstThreeChapters || novelLibraryStore.isLoading)
+            }
+        }
+    }
+}
+
+private struct ChapterImportEditor: View {
+    let chapterNumber: Int
+    @Binding var title: String
+    @Binding var text: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                PillView(text: "第 \(chapterNumber) 章", tone: .blue)
+                SoftTextField("章节标题", text: $title)
+            }
+
+            SoftTextEditor(
+                text: $text,
+                placeholder: "粘贴第 \(chapterNumber) 章正文。",
+                minHeight: 160,
+                idealHeight: 190,
+                maxHeight: 240
+            )
+
+            HStack {
+                Text("\(text.trimmingCharacters(in: .whitespacesAndNewlines).count) 字")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.muted)
+                Spacer()
+            }
+        }
+        .padding(14)
+        .background(Color.white.opacity(0.58), in: RoundedRectangle(cornerRadius: AppTheme.radiusLG, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.radiusLG, style: .continuous)
+                .stroke(Color.white.opacity(0.82), lineWidth: 1)
+        )
     }
 }
 

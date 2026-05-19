@@ -2,6 +2,7 @@ import NovelOSMacCore
 import SwiftUI
 
 struct ChapterStudioView: View {
+    @Environment(AppStore.self) private var appStore
     @Environment(ChapterWorkflowStore.self) private var store
 
     var body: some View {
@@ -9,19 +10,28 @@ struct ChapterStudioView: View {
             VStack(alignment: .leading, spacing: 18) {
                 TopBarView(kicker: "Chapter Studio · 主流程", title: "一章一个工作台，专心把这一章写出来") {
                     HStack(spacing: 10) {
-                        PillView(text: "自动保存", tone: .green)
-                        Button {
-                            store.statusMessage = "本章导出会在接入真实版本后启用。"
-                        } label: {
-                            Label("导出本章", systemImage: "square.and.arrow.up")
+                        if store.isBootstrapReady {
+                            PillView(text: "自动保存", tone: .green)
+                            Button {
+                                store.statusMessage = "本章导出会在接入真实版本后启用。"
+                            } label: {
+                                Label("导出本章", systemImage: "square.and.arrow.up")
+                            }
+                            .buttonStyle(GhostButtonStyle())
+                            Button {
+                                store.tryMove(to: store.highestUnlockedStep)
+                            } label: {
+                                Label("继续当前步骤", systemImage: "arrow.right.circle")
+                            }
+                            .buttonStyle(PrimaryButtonStyle())
+                        } else {
+                            Button {
+                                appStore.selectedWorkspace = .chaptersList
+                            } label: {
+                                Label("导入前三章", systemImage: "tray.and.arrow.down")
+                            }
+                            .buttonStyle(BlueButtonStyle())
                         }
-                        .buttonStyle(GhostButtonStyle())
-                        Button {
-                            store.tryMove(to: store.highestUnlockedStep)
-                        } label: {
-                            Label("继续当前步骤", systemImage: "arrow.right.circle")
-                        }
-                        .buttonStyle(PrimaryButtonStyle())
                     }
                 }
 
@@ -29,19 +39,39 @@ struct ChapterStudioView: View {
                     StatusBanner(message: message, tone: .blue)
                 }
 
-                ChapterStepperView()
+                if store.isBootstrapReady {
+                    ChapterStepperView()
 
-                switch store.currentStep {
-                case .promptInput:
-                    StepPromptInputView()
-                case .structuredPromptReview:
-                    StepStructuredPromptReviewView()
-                case .draftReview:
-                    StepDraftReviewView()
-                case .finalApproval:
-                    StepFinalApprovalView()
-                case .canonPatchReview:
-                    StepCanonPatchReviewView()
+                    switch store.currentStep {
+                    case .promptInput:
+                        StepPromptInputView()
+                    case .structuredPromptReview:
+                        StepStructuredPromptReviewView()
+                    case .draftReview:
+                        StepDraftReviewView()
+                    case .finalApproval:
+                        StepFinalApprovalView()
+                    case .canonPatchReview:
+                        StepCanonPatchReviewView()
+                    }
+                } else {
+                    CardView {
+                        CardHeader(
+                            title: "先导入前三章",
+                            subtitle: "这本书还没有完成初始化。导入第 1、2、3 章后，系统会准备第 4 章工作台。"
+                        )
+                        CardBody {
+                            EmptyStateView(text: "当前不能直接写新章，请先在章节列表导入前三章正文。")
+                        }
+                        CardFooter {
+                            Button {
+                                appStore.selectedWorkspace = .chaptersList
+                            } label: {
+                                Label("去导入前三章", systemImage: "tray.and.arrow.down")
+                            }
+                            .buttonStyle(BlueButtonStyle())
+                        }
+                    }
                 }
             }
             .padding(AppTheme.pagePadding)

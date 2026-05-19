@@ -1,6 +1,6 @@
 import Foundation
 
-public actor APIClient: ChapterWorkflowAPI, BaseDocumentsAPI, KnowledgeMatrixAPI, AdminSettingsAPI {
+public actor APIClient: ChapterWorkflowAPI, BaseDocumentsAPI, KnowledgeMatrixAPI, AdminSettingsAPI, NovelLibraryAPI {
     private let baseURLProvider: @Sendable () -> URL
     private let ownerTokenProvider: @Sendable () -> String?
     private let session: URLSession
@@ -39,6 +39,30 @@ public actor APIClient: ChapterWorkflowAPI, BaseDocumentsAPI, KnowledgeMatrixAPI
 
     public func testLLMProvider(providerID: String?, prompt: String = "ping") async throws -> LLMTestResponse {
         try await perform(try Endpoint.testLLMProvider(providerID: providerID, prompt: prompt))
+    }
+
+    public func listNovels() async throws -> [Novel] {
+        try await perform(Endpoint.listNovels())
+    }
+
+    public func createNovel(_ request: NovelCreateRequest) async throws -> Novel {
+        try await perform(try Endpoint.createNovel(request))
+    }
+
+    public func createChapter(novelID: String, request: ChapterCreateRequest) async throws -> Chapter {
+        try await perform(try Endpoint.createChapter(novelID: novelID, request: request))
+    }
+
+    public func importFirstThreeChapters(novelID: String, request: BootstrapImportRequest) async throws -> NovelBootstrapStatus {
+        try await perform(try Endpoint.importFirstThreeChapters(novelID: novelID, request: request))
+    }
+
+    public func getBootstrapStatus(novelID: String) async throws -> NovelBootstrapStatus {
+        try await perform(Endpoint.getBootstrapStatus(novelID: novelID))
+    }
+
+    public func analyzeBootstrap(novelID: String) async throws -> BootstrapAnalyzeResult {
+        try await perform(Endpoint.analyzeBootstrap(novelID: novelID))
     }
 
     public func listChapters(novelID: String) async throws -> [Chapter] {
