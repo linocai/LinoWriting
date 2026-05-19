@@ -7,6 +7,7 @@ struct NovelOSMacApp: App {
     @State private var chapterStore = ChapterWorkflowStore(api: AppEnvironment.chapterWorkflowAPI)
     @State private var baseDocumentsStore = BaseDocumentsStore(api: AppEnvironment.baseDocumentsAPI)
     @State private var knowledgeStore = KnowledgeMatrixStore(api: AppEnvironment.knowledgeMatrixAPI)
+    @State private var settingsStore = ApplicationSettingsStore(api: AppEnvironment.adminSettingsAPI)
 
     var body: some Scene {
         WindowGroup("NovelOSMac") {
@@ -15,6 +16,7 @@ struct NovelOSMacApp: App {
                 .environment(chapterStore)
                 .environment(baseDocumentsStore)
                 .environment(knowledgeStore)
+                .environment(settingsStore)
                 .preferredColorScheme(.light)
                 .frame(
                     minWidth: 900,

@@ -184,6 +184,46 @@ class BootstrapAnalyzeResponse(APIModel):
     analysis: dict
 
 
+class LLMProviderPublic(APIModel):
+    id: str
+    name: str
+    base_url: str
+    model: str
+    timeout_seconds: float = 60.0
+    has_api_key: bool = False
+    is_active: bool = False
+
+
+class LLMProviderUpsert(APIModel):
+    name: str
+    base_url: str
+    model: str
+    api_key: Optional[str] = None
+    timeout_seconds: float = 60.0
+
+
+class LLMProvidersResponse(APIModel):
+    active_provider_id: Optional[str] = None
+    providers: list[LLMProviderPublic]
+
+
+class ActiveLLMProviderRequest(APIModel):
+    provider_id: str
+
+
+class LLMTestRequest(APIModel):
+    provider_id: Optional[str] = None
+    prompt: str = "ping"
+
+
+class LLMTestResponse(APIModel):
+    ok: bool
+    provider_id: str
+    model: str
+    message: str
+    token_usage: dict = Field(default_factory=dict)
+
+
 class CanonPatchItem(APIModel):
     id: str
     target: str

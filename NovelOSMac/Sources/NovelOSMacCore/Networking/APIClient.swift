@@ -1,12 +1,44 @@
 import Foundation
 
-public actor APIClient: ChapterWorkflowAPI, BaseDocumentsAPI, KnowledgeMatrixAPI {
-    private let baseURL: URL
+public actor APIClient: ChapterWorkflowAPI, BaseDocumentsAPI, KnowledgeMatrixAPI, AdminSettingsAPI {
+    private let baseURLProvider: @Sendable () -> URL
+    private let ownerTokenProvider: @Sendable () -> String?
     private let session: URLSession
 
-    public init(baseURL: URL, session: URLSession = .shared) {
-        self.baseURL = baseURL
+    public init(baseURL: URL, ownerToken: String? = nil, session: URLSession = .shared) {
+        self.baseURLProvider = { baseURL }
+        self.ownerTokenProvider = { ownerToken }
         self.session = session
+    }
+
+    public init(
+        baseURLProvider: @escaping @Sendable () -> URL,
+        ownerTokenProvider: @escaping @Sendable () -> String? = { nil },
+        session: URLSession = .shared
+    ) {
+        self.baseURLProvider = baseURLProvider
+        self.ownerTokenProvider = ownerTokenProvider
+        self.session = session
+    }
+
+    public func getLLMProviders() async throws -> LLMProvidersResponse {
+        try await perform(Endpoint.getLLMProviders())
+    }
+
+    public func upsertLLMProvider(providerID: String, request: LLMProviderUpsert) async throws -> LLMProvidersResponse {
+        try await perform(try Endpoint.upsertLLMProvider(providerID: providerID, request: request))
+    }
+
+    public func deleteLLMProvider(providerID: String) async throws -> LLMProvidersResponse {
+        try await perform(Endpoint.deleteLLMProvider(providerID: providerID))
+    }
+
+    public func setActiveLLMProvider(providerID: String) async throws -> LLMProvidersResponse {
+        try await perform(try Endpoint.setActiveLLMProvider(providerID: providerID))
+    }
+
+    public func testLLMProvider(providerID: String?, prompt: String = "ping") async throws -> LLMTestResponse {
+        try await perform(try Endpoint.testLLMProvider(providerID: providerID, prompt: prompt))
     }
 
     public func listChapters(novelID: String) async throws -> [Chapter] {
@@ -131,7 +163,10 @@ public actor APIClient: ChapterWorkflowAPI, BaseDocumentsAPI, KnowledgeMatrixAPI
     }
 
     private func data(for endpoint: Endpoint) async throws -> Data {
-        let request = try endpoint.urlRequest(baseURL: baseURL)
+        var request = try endpoint.urlRequest(baseURL: baseURLProvider())
+        if let ownerToken = ownerTokenProvider()?.trimmingCharacters(in: .whitespacesAndNewlines), !ownerToken.isEmpty {
+            request.setValue(ownerToken, forHTTPHeaderField: "X-NovelOS-Owner-Token")
+        }
         do {
             let (data, response) = try await session.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {

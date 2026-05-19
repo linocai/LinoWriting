@@ -72,8 +72,15 @@ class FakeGateway:
 
 @pytest.fixture()
 def client(tmp_path, monkeypatch) -> Generator[TestClient, None, None]:
+    monkeypatch.setenv("NOVEL_OS_ENV_PATH", str(tmp_path / ".env"))
     monkeypatch.setenv("NOVEL_OS_IMPORT_STORAGE_DIR", str(tmp_path / "imports"))
     monkeypatch.setenv("NOVEL_OS_LLM_MODE", "mock")
+    monkeypatch.setenv("NOVEL_OS_REQUIRE_OWNER_TOKEN", "false")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_BASE_URL", "https://api.openai.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_MODEL", "gpt-4.1-mini")
+    monkeypatch.delenv("NOVEL_OS_LLM_PROVIDERS_JSON", raising=False)
+    monkeypatch.delenv("NOVEL_OS_ACTIVE_LLM_PROVIDER", raising=False)
     engine = create_engine(
         f"sqlite:///{tmp_path / 'novelos_test.db'}",
         connect_args={"check_same_thread": False},
@@ -126,6 +133,82 @@ def test_health_and_seeded_reads(client: TestClient):
     imported_draft = client.get("/api/chapters/chapter_001/draft/latest")
     assert imported_draft.status_code == 200
     assert "没有署名的邮件" in imported_draft.json()["text"]
+
+
+def test_owner_token_protects_api_when_enabled(tmp_path, monkeypatch):
+    monkeypatch.setenv("NOVEL_OS_ENV_PATH", str(tmp_path / ".env"))
+    monkeypatch.setenv("NOVEL_OS_REQUIRE_OWNER_TOKEN", "true")
+    monkeypatch.setenv("NOVEL_OS_OWNER_TOKEN", "owner-secret")
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'token_test.db'}",
+        connect_args={"check_same_thread": False},
+        future=True,
+    )
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    Base.metadata.create_all(bind=engine)
+    with TestingSessionLocal() as session:
+        seed_database(session)
+
+    app = create_app(init_on_startup=False)
+
+    def override_get_session():
+        with TestingSessionLocal() as session:
+            yield session
+
+    app.dependency_overrides[get_session] = override_get_session
+    with TestClient(app) as token_client:
+        assert token_client.get("/healthz").status_code == 200
+        assert token_client.get("/api/novels").status_code == 401
+        assert token_client.get("/api/novels", headers={"X-NovelOS-Owner-Token": "bad"}).status_code == 401
+        assert token_client.get(
+            "/api/novels",
+            headers={"X-NovelOS-Owner-Token": "owner-secret"},
+        ).status_code == 200
+
+
+def test_llm_provider_admin_api_writes_env_and_hides_keys(client: TestClient, monkeypatch):
+    class FakeAdminGateway:
+        def __init__(self, **kwargs):
+            self.provider = kwargs["provider"]
+
+        def complete_text(self, prompt: str, *, system=None, metadata=None) -> LLMResult:
+            return LLMResult(
+                content="ok",
+                model=self.provider.model,
+                token_usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            )
+
+    monkeypatch.setattr("app.routers.admin.OpenAICompatibleGateway", FakeAdminGateway)
+
+    created = client.put(
+        "/api/admin/llm/providers/deepseek",
+        json={
+            "name": "DeepSeek",
+            "base_url": "https://api.deepseek.com/v1",
+            "model": "deepseek-chat",
+            "api_key": "secret-key",
+            "timeout_seconds": 45,
+        },
+    )
+    assert created.status_code == 200
+    provider = next(item for item in created.json()["providers"] if item["id"] == "deepseek")
+    assert provider["has_api_key"] is True
+    assert "api_key" not in provider
+
+    switched = client.post("/api/admin/llm/active-provider", json={"provider_id": "deepseek"})
+    assert switched.status_code == 200
+    assert switched.json()["active_provider_id"] == "deepseek"
+
+    tested = client.post("/api/admin/llm/test", json={"provider_id": "deepseek"})
+    assert tested.status_code == 200
+    assert tested.json()["ok"] is True
+    assert tested.json()["model"] == "deepseek-chat"
+
+    deleted = client.delete("/api/admin/llm/providers/deepseek")
+    assert deleted.status_code == 200
+    remaining_id = deleted.json()["providers"][0]["id"]
+    rejected = client.delete(f"/api/admin/llm/providers/{remaining_id}")
+    assert rejected.status_code == 409
 
 
 def test_novel_crud_and_bootstrap_flow(client: TestClient):

@@ -151,6 +151,22 @@ import Foundation
     let listRequest = Endpoint.listChapters(novelID: "novel_001")
     #expect(listRequest.method == .get)
     #expect(listRequest.path == "/api/novels/novel_001/chapters")
+
+    let providerEndpoint = try Endpoint.upsertLLMProvider(
+        providerID: "deepseek",
+        request: LLMProviderUpsert(
+            name: "DeepSeek",
+            baseUrl: "https://api.deepseek.com/v1",
+            model: "deepseek-chat",
+            apiKey: "secret",
+            timeoutSeconds: 45
+        )
+    )
+    #expect(providerEndpoint.method == .put)
+    #expect(providerEndpoint.path == "/api/admin/llm/providers/deepseek")
+    let providerJSON = String(data: try #require(providerEndpoint.body), encoding: .utf8) ?? ""
+    #expect(providerJSON.contains("base_url"))
+    #expect(providerJSON.contains("api_key"))
 }
 
 @Test func liveSnakeCaseFixturesDecode() throws {

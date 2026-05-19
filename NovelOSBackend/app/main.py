@@ -2,15 +2,17 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 import os
+import secrets
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import sessionmaker
 
 from app import models  # noqa: F401
-from app.config import env_flag, env_list, load_environment
+from app.config import env_flag, env_list, load_environment, owner_token, require_owner_token
 from app.database import Base, SessionLocal, engine
-from app.routers import base_documents, chapter_workflow, knowledge_matrix, novels
+from app.routers import admin, base_documents, chapter_workflow, knowledge_matrix, novels
 from app.seed import seed_database
 
 
@@ -52,10 +54,27 @@ def create_app(init_on_startup: bool = True) -> FastAPI:
     def healthz():
         return {"status": "ok"}
 
+    @app.middleware("http")
+    async def owner_token_middleware(request: Request, call_next):
+        if not require_owner_token() or request.url.path == "/healthz" or request.method == "OPTIONS":
+            return await call_next(request)
+
+        expected = owner_token()
+        if not expected:
+            return JSONResponse(
+                status_code=503,
+                content={"detail": "Owner token is required but NOVEL_OS_OWNER_TOKEN is not configured."},
+            )
+        provided = request.headers.get("X-NovelOS-Owner-Token", "")
+        if not secrets.compare_digest(provided, expected):
+            return JSONResponse(status_code=401, content={"detail": "Invalid owner token."})
+        return await call_next(request)
+
     app.include_router(chapter_workflow.router)
     app.include_router(novels.router)
     app.include_router(base_documents.router)
     app.include_router(knowledge_matrix.router)
+    app.include_router(admin.router)
     return app
 
 

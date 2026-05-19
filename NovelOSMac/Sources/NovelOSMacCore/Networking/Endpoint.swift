@@ -3,6 +3,7 @@ import Foundation
 public enum HTTPMethod: String, Codable, Equatable, Sendable {
     case get = "GET"
     case post = "POST"
+    case put = "PUT"
     case patch = "PATCH"
     case delete = "DELETE"
 }
@@ -48,6 +49,26 @@ public struct Endpoint: Equatable, Sendable {
 }
 
 public extension Endpoint {
+    static func getLLMProviders() -> Endpoint {
+        Endpoint(method: .get, path: "/api/admin/llm/providers")
+    }
+
+    static func upsertLLMProvider(providerID: String, request: LLMProviderUpsert) throws -> Endpoint {
+        try json(.put, "/api/admin/llm/providers/\(providerID)", request)
+    }
+
+    static func deleteLLMProvider(providerID: String) -> Endpoint {
+        Endpoint(method: .delete, path: "/api/admin/llm/providers/\(providerID)")
+    }
+
+    static func setActiveLLMProvider(providerID: String) throws -> Endpoint {
+        try json(.post, "/api/admin/llm/active-provider", ActiveLLMProviderRequest(providerId: providerID))
+    }
+
+    static func testLLMProvider(providerID: String?, prompt: String) throws -> Endpoint {
+        try json(.post, "/api/admin/llm/test", LLMTestRequest(providerId: providerID, prompt: prompt))
+    }
+
     static func listChapters(novelID: String) -> Endpoint {
         Endpoint(method: .get, path: "/api/novels/\(novelID)/chapters")
     }

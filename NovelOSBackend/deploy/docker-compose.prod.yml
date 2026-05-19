@@ -1,0 +1,50 @@
+services:
+  novelos-db:
+    image: postgres:16-alpine
+    container_name: novelos-db
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: novelos
+      POSTGRES_USER: novelos
+      POSTGRES_PASSWORD: ${NOVELOS_POSTGRES_PASSWORD}
+    volumes:
+      - novelos-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U novelos -d novelos"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  novelos-api:
+    build:
+      context: ..
+    container_name: novelos-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://novelos:${NOVELOS_POSTGRES_PASSWORD}@novelos-db:5432/novelos
+      NOVEL_OS_CREATE_TABLES_ON_STARTUP: "false"
+      NOVEL_OS_REQUIRE_OWNER_TOKEN: "true"
+      NOVEL_OS_ENV_PATH: /config/.env
+      NOVEL_OS_SEED_ON_STARTUP: "true"
+      NOVEL_OS_SEED_MODE: "completed_mock"
+      NOVEL_OS_IMPORT_STORAGE_DIR: /data/imports
+    command: >
+      sh -c "alembic upgrade head &&
+             python -m app.seed_cli &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    ports:
+      - "127.0.0.1:8020:8000"
+    volumes:
+      - ./.env:/config/.env
+      - novelos-imports:/data/imports
+    depends_on:
+      novelos-db:
+        condition: service_healthy
+
+volumes:
+  novelos-postgres:
+  novelos-imports:

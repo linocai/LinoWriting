@@ -79,16 +79,26 @@ class OpenAICompatibleGateway:
     def __init__(
         self,
         *,
+        provider: config.LLMProviderConfig | None = None,
         api_key: str | None = None,
         base_url: str | None = None,
         model: str | None = None,
         timeout_seconds: float | None = None,
         client: httpx.Client | None = None,
     ) -> None:
-        self.api_key = api_key or config.openai_compatible_api_key()
-        self.base_url = (base_url or config.openai_compatible_base_url()).rstrip("/")
-        self.model = model or config.openai_compatible_model()
-        self.timeout_seconds = timeout_seconds or config.openai_compatible_timeout_seconds()
+        active_provider = provider or config.active_llm_provider()
+        self.api_key = api_key or (active_provider.api_key if active_provider else None) or config.openai_compatible_api_key()
+        self.base_url = (
+            base_url
+            or (active_provider.base_url if active_provider else None)
+            or config.openai_compatible_base_url()
+        ).rstrip("/")
+        self.model = model or (active_provider.model if active_provider else None) or config.openai_compatible_model()
+        self.timeout_seconds = (
+            timeout_seconds
+            or (active_provider.timeout_seconds if active_provider else None)
+            or config.openai_compatible_timeout_seconds()
+        )
         self.client = client
 
     def complete_text(

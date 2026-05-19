@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>top.linotsai.novelos.local7773</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/linotsai/Lino/LinoWriting/NovelOSBackend/.venv/bin/python</string>
+    <string>-m</string>
+    <string>uvicorn</string>
+    <string>app.main:app</string>
+    <string>--host</string>
+    <string>127.0.0.1</string>
+    <string>--port</string>
+    <string>7773</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/linotsai/Lino/LinoWriting/NovelOSBackend</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>NOVEL_OS_REQUIRE_OWNER_TOKEN</key>
+    <string>false</string>
+    <key>NOVEL_OS_CORS_ALLOW_ORIGINS</key>
+    <string>http://127.0.0.1:7773,http://localhost:7773</string>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/Users/linotsai/Lino/LinoWriting/NovelOSBackend/.local-run/novelos-7773.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/Users/linotsai/Lino/LinoWriting/NovelOSBackend/.local-run/novelos-7773.err.log</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+</dict>
+</plist>

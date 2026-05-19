@@ -41,6 +41,86 @@ public enum ChapterStatus: String, Codable, Equatable, Sendable {
     case completed
 }
 
+public struct LLMProvider: Identifiable, Codable, Equatable, Sendable {
+    public let id: String
+    public var name: String
+    public var baseUrl: String
+    public var model: String
+    public var timeoutSeconds: Double
+    public var hasApiKey: Bool
+    public var isActive: Bool
+
+    public init(id: String, name: String, baseUrl: String, model: String, timeoutSeconds: Double, hasApiKey: Bool, isActive: Bool) {
+        self.id = id
+        self.name = name
+        self.baseUrl = baseUrl
+        self.model = model
+        self.timeoutSeconds = timeoutSeconds
+        self.hasApiKey = hasApiKey
+        self.isActive = isActive
+    }
+}
+
+public struct LLMProvidersResponse: Codable, Equatable, Sendable {
+    public var activeProviderId: String?
+    public var providers: [LLMProvider]
+
+    public init(activeProviderId: String?, providers: [LLMProvider]) {
+        self.activeProviderId = activeProviderId
+        self.providers = providers
+    }
+}
+
+public struct LLMProviderUpsert: Codable, Equatable, Sendable {
+    public var name: String
+    public var baseUrl: String
+    public var model: String
+    public var apiKey: String?
+    public var timeoutSeconds: Double
+
+    public init(name: String, baseUrl: String, model: String, apiKey: String?, timeoutSeconds: Double) {
+        self.name = name
+        self.baseUrl = baseUrl
+        self.model = model
+        self.apiKey = apiKey
+        self.timeoutSeconds = timeoutSeconds
+    }
+}
+
+public struct ActiveLLMProviderRequest: Codable, Equatable, Sendable {
+    public var providerId: String
+
+    public init(providerId: String) {
+        self.providerId = providerId
+    }
+}
+
+public struct LLMTestRequest: Codable, Equatable, Sendable {
+    public var providerId: String?
+    public var prompt: String
+
+    public init(providerId: String?, prompt: String) {
+        self.providerId = providerId
+        self.prompt = prompt
+    }
+}
+
+public struct LLMTestResponse: Codable, Equatable, Sendable {
+    public var ok: Bool
+    public var providerId: String
+    public var model: String
+    public var message: String
+    public var tokenUsage: [String: Int]
+
+    public init(ok: Bool, providerId: String, model: String, message: String, tokenUsage: [String: Int]) {
+        self.ok = ok
+        self.providerId = providerId
+        self.model = model
+        self.message = message
+        self.tokenUsage = tokenUsage
+    }
+}
+
 public struct StructuredPrompt: Identifiable, Codable, Equatable, Sendable {
     public let id: String
     public let chapterId: String
