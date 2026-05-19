@@ -48,6 +48,10 @@ public struct Endpoint: Equatable, Sendable {
 }
 
 public extension Endpoint {
+    static func listChapters(novelID: String) -> Endpoint {
+        Endpoint(method: .get, path: "/api/novels/\(novelID)/chapters")
+    }
+
     static func getWorldBibleSections(novelID: String) -> Endpoint {
         Endpoint(method: .get, path: "/api/novels/\(novelID)/world-bible")
     }

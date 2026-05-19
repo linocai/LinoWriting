@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Optional
 
-from sqlalchemy import Boolean, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import JSON
 
@@ -15,9 +17,11 @@ class NovelModel(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True)
     title: Mapped[str] = mapped_column(String, nullable=False)
     genre: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="active")
+    language: Mapped[str] = mapped_column(String, nullable=False, default="zh-Hans")
     current_chapter_no: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     current_canon_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    bootstrap_status: Mapped[str] = mapped_column(String, nullable=False, default="completed")
+    bootstrap_status: Mapped[str] = mapped_column(String, nullable=False, default="not_started")
 
 
 class ChapterModel(Base):
@@ -38,6 +42,44 @@ class ChapterModel(Base):
     canon_patch: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
 
+class StructuredPromptModel(Base):
+    __tablename__ = "structured_prompts"
+    __table_args__ = (UniqueConstraint("chapter_id", "version", name="uq_structured_prompt_version"),)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    chapter_id: Mapped[str] = mapped_column(String, ForeignKey("chapters.id"), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="draft")
+    created_by: Mapped[str] = mapped_column(String, nullable=False, default="prompt_expander")
+    created_at: Mapped[float] = mapped_column(Float, nullable=False)
+
+
+class CanonUpdatePatchModel(Base):
+    __tablename__ = "canon_update_patches"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    chapter_id: Mapped[str] = mapped_column(String, ForeignKey("chapters.id"), nullable=False)
+    target_canon_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="pending_user_confirmation")
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[float] = mapped_column(Float, nullable=False)
+    confirmed_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+
+class CanonEditHistoryModel(Base):
+    __tablename__ = "canon_edit_history"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    novel_id: Mapped[str] = mapped_column(String, ForeignKey("novels.id"), nullable=False)
+    chapter_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("chapters.id"), nullable=True)
+    target: Mapped[str] = mapped_column(String, nullable=False)
+    action: Mapped[str] = mapped_column(String, nullable=False)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_by: Mapped[str] = mapped_column(String, nullable=False, default="canon_merge_agent")
+    created_at: Mapped[float] = mapped_column(Float, nullable=False)
+
+
 class DraftModel(Base):
     __tablename__ = "chapter_versions"
     __table_args__ = (UniqueConstraint("chapter_id", "version_no", name="uq_draft_version"),)
@@ -49,6 +91,7 @@ class DraftModel(Base):
     word_count: Mapped[int] = mapped_column(Integer, nullable=False)
     audit_summary: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     source: Mapped[str] = mapped_column(String, nullable=False, default="initial_generation")
+    user_feedback: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[float] = mapped_column(Float, nullable=False)
 
 
@@ -56,7 +99,8 @@ class ContextPackModel(Base):
     __tablename__ = "context_packs"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
-    chapter_id: Mapped[str] = mapped_column(String, ForeignKey("chapters.id"), nullable=False, unique=True)
+    chapter_id: Mapped[str] = mapped_column(String, ForeignKey("chapters.id"), nullable=False)
+    canon_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     payload: Mapped[dict] = mapped_column(JSON, nullable=False)
     created_at: Mapped[float] = mapped_column(Float, nullable=False)
 
@@ -69,15 +113,18 @@ class AgentRunModel(Base):
     chapter_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("chapters.id"), nullable=True)
     agent_name: Mapped[str] = mapped_column(String, nullable=False)
     run_type: Mapped[str] = mapped_column(String, nullable=False, default="workflow")
+    model: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False)
-    timestamp_label: Mapped[str] = mapped_column(String, nullable=False)
     payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     input_payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     output_payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    input_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    output_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    token_usage: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     started_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    finished_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[float] = mapped_column(Float, nullable=False)
 
 
@@ -91,7 +138,7 @@ class AuditReportModel(Base):
     knowledge_result: Mapped[dict] = mapped_column(JSON, nullable=False)
     continuity_result: Mapped[dict] = mapped_column(JSON, nullable=False)
     summary: Mapped[dict] = mapped_column(JSON, nullable=False)
-    passed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    passed: Mapped[bool] = mapped_column("pass", Boolean, nullable=False, default=True)
     highest_severity: Mapped[str] = mapped_column(String, nullable=False, default="none")
     created_at: Mapped[float] = mapped_column(Float, nullable=False)
 
@@ -103,6 +150,7 @@ class BootstrapImportModel(Base):
     novel_id: Mapped[str] = mapped_column(String, ForeignKey("novels.id"), nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, default="imported")
     source_type: Mapped[str] = mapped_column(String, nullable=False, default="first_three_chapters")
+    storage_path: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     chapters_payload: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     analysis_payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[float] = mapped_column(Float, nullable=False)
@@ -114,6 +162,7 @@ class WorldBibleSectionModel(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     novel_id: Mapped[str] = mapped_column(String, ForeignKey("novels.id"), nullable=False)
+    section_key: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     title: Mapped[str] = mapped_column(String, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     tags: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
@@ -133,8 +182,11 @@ class CharacterCardModel(Base):
     aliases: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     role: Mapped[str] = mapped_column(String, nullable=False)
     stable_traits: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
-    current_state: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    dialogue_style: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    current_state: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    dialogue_style: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    knowledge_summary: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    do_not_auto_mention: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    default_visibility: Mapped[str] = mapped_column(String, nullable=False, default="manual_only")
     relationships: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     forbidden_behavior: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     last_active_chapter_no: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -146,13 +198,14 @@ class KnowledgeMatrixEntryModel(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     novel_id: Mapped[str] = mapped_column(String, ForeignKey("novels.id"), nullable=False)
+    fact: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     fact_title: Mapped[str] = mapped_column(String, nullable=False)
     truth_status: Mapped[str] = mapped_column(String, nullable=False)
     author_knowledge: Mapped[str] = mapped_column(String, nullable=False)
     reader_knowledge: Mapped[str] = mapped_column(String, nullable=False)
     character_knowledge: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     visibility: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
-    allowed_narration: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    allowed_narration: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     canon_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
 
@@ -163,9 +216,12 @@ class MemoryFactModel(Base):
     novel_id: Mapped[str] = mapped_column(String, ForeignKey("novels.id"), nullable=False)
     chapter_no: Mapped[int] = mapped_column(Integer, nullable=False)
     fact_type: Mapped[str] = mapped_column(String, nullable=False)
+    time_in_story: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     participants: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     location: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     evidence: Mapped[str] = mapped_column(Text, nullable=False)
     canon_status: Mapped[str] = mapped_column(String, nullable=False, default="confirmed")
     canon_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    metadata_json: Mapped[dict] = mapped_column("metadata", JSON, nullable=False, default=dict)
+    created_by: Mapped[str] = mapped_column(String, nullable=False, default="system")

@@ -8,33 +8,69 @@ struct ChaptersListView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                TopBarView(kicker: "章节列表", title: "章节是版本化资产，不是聊天记录") {
+                TopBarView(kicker: "章节列表", title: "查看已导入和已生成的正文") {
                     Button {
-                        chapterStore.statusMessage = "新建下一章会在接入真实 API 后启用。"
+                        appStore.selectedWorkspace = .chapterStudio
                     } label: {
-                        Label("新建下一章", systemImage: "plus")
+                        Label("继续写当前章", systemImage: "square.and.pencil")
                     }
                     .buttonStyle(BlueButtonStyle())
                 }
 
-                CardView {
-                    CardHeader(title: "章节资产", subtitle: "每一章都保留状态、字数和 Canon 版本。")
-                    CardBody {
-                        VStack(alignment: .leading, spacing: 10) {
-                            ChapterTimelineRow(chapter: "第 1 章", title: "导入原文", subtitle: "作为前三章导入基础，用于初始 Canon。", wordCount: "3,120", canon: "Canon v4", pill: "locked", tone: .green)
-                            ChapterTimelineRow(chapter: "第 2 章", title: "导入原文", subtitle: "已提取人物、Memory、World Bible 片段。", wordCount: "3,380", canon: "Canon v8", pill: "locked", tone: .green)
-                            ChapterTimelineRow(chapter: "第 3 章", title: "导入原文", subtitle: "初始基础文件完成。", wordCount: "3,460", canon: "Canon v12", pill: "locked", tone: .green)
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 16) {
+                        chapterListCard
+                            .frame(minWidth: 340, idealWidth: 420, maxWidth: 460)
+                        chapterReaderCard
+                            .frame(maxWidth: .infinity)
+                    }
+
+                    VStack(alignment: .leading, spacing: 16) {
+                        chapterListCard
+                        chapterReaderCard
+                    }
+                }
+            }
+            .padding(AppTheme.pagePadding)
+        }
+        .background(AppBackgroundView())
+        .task {
+            await chapterStore.loadReadableChapters()
+        }
+    }
+
+    private var sortedChapters: [Chapter] {
+        chapterStore.chapters.sorted { $0.chapterNo < $1.chapterNo }
+    }
+
+    private var selectedChapter: Chapter? {
+        guard let selectedID = chapterStore.selectedReadableChapterID else {
+            return sortedChapters.first
+        }
+        return sortedChapters.first { $0.id == selectedID } ?? sortedChapters.first
+    }
+
+    private var chapterListCard: some View {
+        CardView {
+            CardHeader(title: "章节", subtitle: "导入的前三章和后续生成章节都可以在这里打开。")
+            CardBody {
+                if sortedChapters.isEmpty {
+                    EmptyStateView(text: "还没有章节。")
+                } else {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(sortedChapters) { chapter in
                             Button {
-                                appStore.selectedWorkspace = .chapterStudio
+                                chapterStore.selectedReadableChapterID = chapter.id
                             } label: {
                                 ChapterTimelineRow(
-                                    chapter: "第 4 章",
-                                    title: chapterStore.chapter.status == .completed ? "已完成" : "AI 创作中",
-                                    subtitle: "当前位于 \(chapterStore.currentStep.title) 阶段。",
-                                    wordCount: "\(chapterStore.draft?.wordCount ?? 0)",
-                                    canon: "Canon v\(chapterStore.novel.currentCanonVersion ?? 12)",
-                                    pill: chapterStore.chapter.status == .completed ? "completed" : "current",
-                                    tone: chapterStore.chapter.status == .completed ? .green : .blue
+                                    chapter: "第 \(chapter.chapterNo) 章",
+                                    title: chapter.title ?? "未命名章节",
+                                    subtitle: subtitle(for: chapter),
+                                    wordCount: wordCountLabel(for: chapter),
+                                    canon: canonLabel(for: chapter),
+                                    pill: pillLabel(for: chapter),
+                                    tone: tone(for: chapter),
+                                    isSelected: selectedChapter?.id == chapter.id
                                 )
                             }
                             .buttonStyle(.plain)
@@ -42,9 +78,91 @@ struct ChaptersListView: View {
                     }
                 }
             }
-            .padding(AppTheme.pagePadding)
         }
-        .background(AppBackgroundView())
+    }
+
+    private var chapterReaderCard: some View {
+        CardView {
+            if let chapter = selectedChapter {
+                let draft = chapterStore.chapterDrafts[chapter.id]
+                CardHeader(title: readerTitle(for: chapter), subtitle: readerSubtitle(for: chapter, draft: draft)) {
+                    if chapter.id == chapterStore.chapter.id {
+                        Button {
+                            appStore.selectedWorkspace = .chapterStudio
+                        } label: {
+                            Label("打开工作台", systemImage: "arrow.right.circle.fill")
+                        }
+                        .buttonStyle(GhostButtonStyle())
+                    }
+                }
+                CardBody {
+                    if let draft {
+                        ScrollView {
+                            Text(draft.text)
+                                .font(.body)
+                                .lineSpacing(7)
+                                .foregroundStyle(AppTheme.text)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .frame(minHeight: 320, maxHeight: 620)
+                    } else {
+                        EmptyStateView(text: "这一章还没有可阅读正文。")
+                    }
+                }
+            } else {
+                CardHeader(title: "正文", subtitle: nil)
+                CardBody {
+                    EmptyStateView(text: "请选择一个章节。")
+                }
+            }
+        }
+    }
+
+    private func subtitle(for chapter: Chapter) -> String {
+        if chapter.id == chapterStore.chapter.id {
+            return "当前位于 \(chapterStore.currentStep.title) 阶段。"
+        }
+        return chapterStore.chapterDrafts[chapter.id] == nil ? "暂无正文版本。" : "已保存正文，可直接阅读。"
+    }
+
+    private func wordCountLabel(for chapter: Chapter) -> String {
+        guard let draft = chapterStore.chapterDrafts[chapter.id] else {
+            return "0"
+        }
+        return "\(draft.wordCount)"
+    }
+
+    private func canonLabel(for chapter: Chapter) -> String {
+        "Canon v\(chapter.canonVersionUsed ?? chapterStore.novel.currentCanonVersion ?? 1)"
+    }
+
+    private func pillLabel(for chapter: Chapter) -> String {
+        if chapter.id == chapterStore.chapter.id && chapter.status != .completed {
+            return "当前章"
+        }
+        if chapterStore.chapterDrafts[chapter.id] != nil {
+            return "可阅读"
+        }
+        return "待生成"
+    }
+
+    private func tone(for chapter: Chapter) -> PillTone {
+        if chapter.id == chapterStore.chapter.id && chapter.status != .completed {
+            return .blue
+        }
+        return chapterStore.chapterDrafts[chapter.id] == nil ? .neutral : .green
+    }
+
+    private func readerTitle(for chapter: Chapter) -> String {
+        "第 \(chapter.chapterNo) 章 \(chapter.title ?? "未命名章节")"
+    }
+
+    private func readerSubtitle(for chapter: Chapter, draft: Draft?) -> String {
+        guard let draft else {
+            return "\(canonLabel(for: chapter)) · 暂无正文"
+        }
+        return "\(draft.wordCount) 字 · 版本 \(draft.versionNo) · \(canonLabel(for: chapter))"
     }
 }
 
@@ -56,6 +174,7 @@ private struct ChapterTimelineRow: View {
     let canon: String
     let pill: String
     let tone: PillTone
+    let isSelected: Bool
 
     var body: some View {
         TimelineItemView(
@@ -72,6 +191,10 @@ private struct ChapterTimelineRow: View {
         } trailing: {
             PillView(text: pill, tone: tone)
         }
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.radiusLG, style: .continuous)
+                .stroke(isSelected ? AppTheme.blue.opacity(0.56) : Color.clear, lineWidth: 1.5)
+        )
     }
 }
 

@@ -1,6 +1,7 @@
 import Foundation
 
 public protocol ChapterWorkflowAPI: Sendable {
+    func listChapters(novelID: String) async throws -> [Chapter]
     func submitUserPrompt(chapterID: String, prompt: String) async throws
     func getStructuredPrompt(chapterID: String) async throws -> StructuredPrompt
     func updateStructuredPrompt(_ prompt: StructuredPrompt, chapterID: String) async throws -> StructuredPrompt

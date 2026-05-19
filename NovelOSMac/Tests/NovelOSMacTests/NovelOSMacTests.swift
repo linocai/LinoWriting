@@ -60,6 +60,17 @@ import Foundation
     #expect(store.auditSummary?.s0Count == 0)
 }
 
+@MainActor
+@Test func chapterStoreLoadsReadableImportedChapters() async throws {
+    let store = ChapterWorkflowStore(api: MockChapterWorkflowAPI())
+
+    await store.loadReadableChapters()
+
+    #expect(store.chapters.map(\.chapterNo) == [1, 2, 3, 4])
+    #expect(store.chapterDrafts["chapter_001"]?.text.contains("没有署名的邮件") == true)
+    #expect(store.selectedReadableChapterID == "chapter_001")
+}
+
 @Test func codableFixturesDecode() throws {
     let novel = try decodeFixture("MockNovel", as: Novel.self)
     let prompt = try decodeFixture("MockStructuredPrompt", as: StructuredPrompt.self)
@@ -74,6 +85,11 @@ import Foundation
 
 @Test func mockChapterWorkflowAPIRunsExpectedSequence() async throws {
     let api = MockChapterWorkflowAPI()
+
+    let chapters = try await api.listChapters(novelID: "novel_001")
+    #expect(chapters.map(\.chapterNo) == [1, 2, 3, 4])
+    let importedDraft = try await api.getLatestDraft(chapterID: "chapter_001")
+    #expect(importedDraft.text.contains("没有署名的邮件"))
 
     try await api.submitUserPrompt(chapterID: "chapter_004", prompt: MockData.promptDraft)
     var prompt = try await api.getStructuredPrompt(chapterID: "chapter_004")
@@ -131,6 +147,10 @@ import Foundation
         .urlRequest(baseURL: try #require(URL(string: "https://api.example.com/v1")))
     #expect(request.httpMethod == "GET")
     #expect(request.url?.absoluteString == "https://api.example.com/v1/api/chapters/chapter_004/draft/latest")
+
+    let listRequest = Endpoint.listChapters(novelID: "novel_001")
+    #expect(listRequest.method == .get)
+    #expect(listRequest.path == "/api/novels/novel_001/chapters")
 }
 
 @Test func liveSnakeCaseFixturesDecode() throws {

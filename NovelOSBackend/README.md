@@ -2,13 +2,13 @@
 
 FastAPI + PostgreSQL backend for the NovelOS macOS app.
 
-This phase is still deterministic and does not call a real LLM, but the mock behavior now runs behind replaceable Agent, LLM gateway, and workflow orchestration seams. The SwiftUI five-step chapter workflow remains API-compatible while the backend grows toward production.
+This phase is still deterministic and does not call a real LLM, but the mock behavior now runs behind replaceable Agent, LLM gateway, and workflow orchestration interfaces. The SwiftUI five-step chapter workflow remains API-compatible while the backend grows toward production. The repo-level `roadmap.md` tracks Phase A mock runtime through Phase D production operations.
 
 Phase 2 adds a deterministic chapter-generation pipeline: submitting a chapter prompt now persists Intent Parser, Context Compiler, and Prompt Expander runs plus a Context Pack snapshot; draft generation persists a Writing Agent run.
 
 Phase 3 adds deterministic draft review support: Writing and Revision output now produces Named Entity, Knowledge, and Continuity audit runs plus a persisted Audit Report. Draft approval is blocked with `409` when the latest draft has S0 audit issues.
 
-Phase 4 adds Novel CRUD, first-three-chapter bootstrap import/analyze placeholders, Alembic migrations, enriched Agent Run trace fields, Audit Report pass/highest-severity fields, and Knowledge Matrix visibility storage.
+Phase 4 adds Novel CRUD, first-three-chapter bootstrap import/analyze placeholders with local import storage, Alembic migrations, enriched Agent Run trace fields, Audit Report pass/highest-severity fields, Knowledge Matrix visibility storage, structured prompt and canon patch tables, and canon edit history.
 
 ## Run With Docker Compose
 
@@ -53,6 +53,7 @@ Tests use SQLite for speed and isolation; Docker Compose is the default Postgres
 - `GET /healthz`
 
 Character cards intentionally do not expose DELETE, matching `novel_ai_backend_plan_v1.md`.
+Once a character appears in approved canon, physical deletion is unsafe; later phases should retire/hide characters instead of deleting them.
 
 ## Migrations
 
@@ -62,3 +63,37 @@ Alembic is configured in `alembic.ini`.
 alembic upgrade head
 alembic downgrade base
 ```
+
+Startup table creation is disabled by default. For one-off local bootstrapping, set:
+
+```bash
+NOVEL_OS_CREATE_TABLES_ON_STARTUP=true
+NOVEL_OS_SEED_MODE=completed_mock
+```
+
+Use `NOVEL_OS_SEED_MODE=empty_bootstrap` to seed only an empty novel shell for bootstrap-flow testing. Runtime imports are written under `NOVEL_OS_IMPORT_STORAGE_DIR` or `data/imports`.
+
+## CORS
+
+Allowed origins are read from `NOVEL_OS_CORS_ALLOW_ORIGINS` as a comma-separated list. The default is restricted to local origins instead of `*`.
+
+## OpenAI-Compatible LLM
+
+Copy `.env.example` to `.env` and fill:
+
+```bash
+NOVEL_OS_LLM_MODE=live
+OPENAI_COMPATIBLE_API_KEY=...
+OPENAI_COMPATIBLE_BASE_URL=https://your-compatible-endpoint/v1
+OPENAI_COMPATIBLE_MODEL=your-model
+```
+
+The backend uses `/chat/completions` and records `model`, `input_json`, `output_json`, and `token_usage` into `agent_runs`.
+
+After starting the API, run a manual live smoke:
+
+```bash
+python scripts/live_smoke.py
+```
+
+The smoke creates a temporary novel, imports three sample chapters, creates chapter 4, runs structured prompt generation, draft generation, audit, final approval, and canon merge.

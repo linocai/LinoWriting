@@ -10,6 +10,8 @@ from app.schemas import (
     BootstrapAnalyzeResponse,
     BootstrapImportRequest,
     BootstrapStatus,
+    Chapter,
+    ChapterCreate,
     Novel,
     NovelCreate,
     NovelUpdate,
@@ -18,6 +20,7 @@ from app.services import (
     analyze_bootstrap_import,
     bootstrap_status_payload,
     create_novel,
+    create_chapter,
     import_first_three_chapters,
     require_novel,
     update_novel,
@@ -50,6 +53,25 @@ def patch_novel(novel_id: str, request: NovelUpdate, session: Session = Depends(
     session.commit()
     session.refresh(novel)
     return novel
+
+
+@router.get("/{novel_id}/chapters", response_model=list[Chapter])
+def list_chapters(novel_id: str, session: Session = Depends(get_session)):
+    from app.models import ChapterModel
+
+    require_novel(session, novel_id)
+    return session.scalars(
+        select(ChapterModel).where(ChapterModel.novel_id == novel_id).order_by(ChapterModel.chapter_no)
+    ).all()
+
+
+@router.post("/{novel_id}/chapters", response_model=Chapter)
+def post_chapter(novel_id: str, request: ChapterCreate, session: Session = Depends(get_session)):
+    novel = require_novel(session, novel_id)
+    chapter = create_chapter(session, novel, request.model_dump())
+    session.commit()
+    session.refresh(chapter)
+    return chapter
 
 
 @router.post("/{novel_id}/bootstrap/import-first-three-chapters", response_model=BootstrapStatus)

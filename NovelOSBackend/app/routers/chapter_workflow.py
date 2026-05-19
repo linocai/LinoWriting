@@ -16,6 +16,7 @@ from app.schemas import (
 )
 from app.services import (
     create_revision,
+    confirm_canon_update_patch as confirm_canon_update_patch_service,
     ensure_canon_patch,
     ensure_initial_draft,
     ensure_structured_prompt,
@@ -25,8 +26,11 @@ from app.services import (
     require_chapter,
     require_novel,
     require_s0_free,
+    run_extraction_agent,
     run_prompt_pipeline,
     run_writing_agent,
+    save_canon_patch,
+    save_structured_prompt,
 )
 
 router = APIRouter(prefix="/api/chapters/{chapter_id}", tags=["chapter-workflow"])
@@ -47,7 +51,7 @@ def submit_user_prompt(
 @router.get("/structured-prompt", response_model=StructuredPrompt)
 def get_structured_prompt(chapter_id: str, session: Session = Depends(get_session)):
     chapter = require_chapter(session, chapter_id)
-    prompt = ensure_structured_prompt(chapter)
+    prompt = ensure_structured_prompt(session, chapter)
     session.commit()
     return prompt
 
@@ -61,17 +65,16 @@ def update_structured_prompt(
     chapter = require_chapter(session, chapter_id)
     payload = prompt.model_dump(mode="json")
     payload["chapter_id"] = chapter.id
-    chapter.structured_prompt = payload
+    save_structured_prompt(session, chapter, payload, status="ready_for_review")
     chapter.status = "structuredPromptReady"
     session.commit()
     return payload
 
 
-@router.post("/structured-prompt", status_code=204)
 @router.post("/structured-prompt/approve", status_code=204)
 def approve_structured_prompt(chapter_id: str, session: Session = Depends(get_session)):
     chapter = require_chapter(session, chapter_id)
-    ensure_structured_prompt(chapter)
+    ensure_structured_prompt(session, chapter)
     chapter.status = "structuredPromptApproved"
     session.commit()
     return Response(status_code=204)
@@ -118,7 +121,8 @@ def approve_final_text(chapter_id: str, session: Session = Depends(get_session))
     chapter = require_chapter(session, chapter_id)
     draft = ensure_initial_draft(session, chapter)
     require_s0_free(draft)
-    ensure_canon_patch(chapter)
+    ensure_canon_patch(session, chapter)
+    run_extraction_agent(session, chapter, draft)
     chapter.status = "canonPatchPending"
     chapter.current_version_id = draft.id
     chapter.approved_version_id = draft.id
@@ -129,7 +133,7 @@ def approve_final_text(chapter_id: str, session: Session = Depends(get_session))
 @router.get("/canon-update-patch", response_model=CanonUpdatePatch)
 def get_canon_update_patch(chapter_id: str, session: Session = Depends(get_session)):
     chapter = require_chapter(session, chapter_id)
-    patch = ensure_canon_patch(chapter)
+    patch = ensure_canon_patch(session, chapter)
     session.commit()
     return patch
 
@@ -143,7 +147,7 @@ def update_canon_update_patch(
     chapter = require_chapter(session, chapter_id)
     payload = patch.model_dump(mode="json")
     payload["chapter_id"] = chapter.id
-    chapter.canon_patch = payload
+    save_canon_patch(session, chapter, payload)
     session.commit()
     return payload
 
@@ -153,9 +157,7 @@ def update_canon_update_patch(
 def confirm_canon_update_patch(chapter_id: str, session: Session = Depends(get_session)):
     chapter = require_chapter(session, chapter_id)
     novel = require_novel(session, chapter.novel_id)
-    patch = ensure_canon_patch(chapter)
-    chapter.status = "completed"
-    novel.current_canon_version = patch["target_canon_version"]
+    confirm_canon_update_patch_service(session, chapter, novel)
     session.commit()
     return Response(status_code=204)
 
@@ -172,7 +174,7 @@ def get_agent_runs(chapter_id: str, session: Session = Depends(get_session)):
     return session.scalars(
         select(AgentRunModel)
         .where(AgentRunModel.chapter_id == chapter_id)
-        .order_by(AgentRunModel.timestamp_label, AgentRunModel.id)
+        .order_by(AgentRunModel.created_at, AgentRunModel.id)
     ).all()
 
 

@@ -24,6 +24,104 @@ public enum MockData {
         canonVersionUsed: 12
     )
 
+    public static let importedChapters: [Chapter] = [
+        Chapter(
+            id: "chapter_001",
+            novelId: "novel_001",
+            chapterNo: 1,
+            title: "雨夜来信",
+            status: .completed,
+            targetWordCount: 3000,
+            approvedVersionId: "draft_001_import_v1",
+            currentVersionId: "draft_001_import_v1",
+            canonVersionUsed: 4
+        ),
+        Chapter(
+            id: "chapter_002",
+            novelId: "novel_001",
+            chapterNo: 2,
+            title: "旧锁",
+            status: .completed,
+            targetWordCount: 3000,
+            approvedVersionId: "draft_002_import_v1",
+            currentVersionId: "draft_002_import_v1",
+            canonVersionUsed: 8
+        ),
+        Chapter(
+            id: "chapter_003",
+            novelId: "novel_001",
+            chapterNo: 3,
+            title: "没进档案的人",
+            status: .completed,
+            targetWordCount: 3000,
+            approvedVersionId: "draft_003_import_v1",
+            currentVersionId: "draft_003_import_v1",
+            canonVersionUsed: 12
+        )
+    ]
+
+    public static let chapters: [Chapter] = importedChapters + [chapter]
+
+    public static let importedDraftText1 = """
+    雨下到后半夜时，A 收到了一封没有署名的邮件。
+
+    邮件里只有一张旧码头的照片。照片拍得很暗，仓库外墙被雨水洗得发黑，门口那盏坏掉多年的灯却亮着。A 盯着那一点光看了很久，直到屏幕自动暗下去。
+
+    他知道旧码头不该有人去。三年前的案子在那里结束，也在那里被匆忙封存。档案写得干净，结论写得确定，可 A 一直记得母亲听见旧码头三个字时突然停住的手。
+
+    照片下方还有一句话：如果你还想知道真相，明天去查那把旧锁。
+    """
+
+    public static let importedDraftText2 = """
+    第二天清晨，A 没有先去警局。
+
+    他绕到旧码头外围，从一条被杂草挡住的小路进去。铁门还在，锁也还在，锈迹沿着锁孔边缘结成一圈暗红色的线。A 拍下照片，把它和邮件里的那张反复对照。
+
+    B 是在他离开前出现的。对方没有问他为什么在这里，只说这片地方早就封了，继续查下去对谁都没有好处。
+
+    A 听见这句话时，反而确定 B 知道更多。不是因为 B 阻止他，而是因为 B 太熟悉这条小路，熟悉到不像偶然经过。
+    """
+
+    public static let importedDraftText3 = """
+    C 把见面地点定在一间快打烊的便利店。
+
+    她没有解释自己为什么现在才出现，只把一只旧录音笔推到 A 面前。录音笔外壳有裂痕，标签上写着旧案日期，字迹已经被磨得发浅。
+
+    “当年有个人看见了码头里的事。”C 说，“但那个人没有出现在任何笔录里。”
+
+    A 没有立刻碰录音笔。他想起 B 看见旧锁时那一瞬间的沉默，也想起母亲多年前在厨房里突然关掉水龙头的声音。所有线索都还很散，但它们第一次指向同一个方向。
+    """
+
+    public static let importedChapterDrafts: [Draft] = [
+        Draft(
+            id: "draft_001_import_v1",
+            chapterId: "chapter_001",
+            versionNo: 1,
+            text: importedDraftText1,
+            wordCount: 224,
+            auditSummary: nil,
+            createdAt: now
+        ),
+        Draft(
+            id: "draft_002_import_v1",
+            chapterId: "chapter_002",
+            versionNo: 1,
+            text: importedDraftText2,
+            wordCount: 229,
+            auditSummary: nil,
+            createdAt: now
+        ),
+        Draft(
+            id: "draft_003_import_v1",
+            chapterId: "chapter_003",
+            versionNo: 1,
+            text: importedDraftText3,
+            wordCount: 225,
+            auditSummary: nil,
+            createdAt: now
+        )
+    ]
+
     public static let promptDraft = "第4章：A 去旧码头调查，遇到 B，发现 B 对旧案有所隐瞒。C 在结尾出现，给 A 一个关于目击者的新线索。整体气氛冷一点，不要太快揭露真相。"
 
     public static let structuredPrompt = StructuredPrompt(

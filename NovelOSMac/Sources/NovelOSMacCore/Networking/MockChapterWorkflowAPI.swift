@@ -18,6 +18,13 @@ public actor MockChapterWorkflowAPI: ChapterWorkflowAPI {
         self.canonPatch = canonPatch
     }
 
+    public func listChapters(novelID: String) async throws -> [Chapter] {
+        guard novelID == MockData.novel.id else {
+            throw APIError.missingResource("novel \(novelID)")
+        }
+        return MockData.chapters
+    }
+
     public func submitUserPrompt(chapterID: String, prompt: String) async throws {
         guard chapterID == MockData.chapter.id else {
             throw APIError.missingResource("chapter \(chapterID)")
@@ -62,6 +69,9 @@ public actor MockChapterWorkflowAPI: ChapterWorkflowAPI {
     }
 
     public func getLatestDraft(chapterID: String) async throws -> Draft {
+        if let importedDraft = MockData.importedChapterDrafts.first(where: { $0.chapterId == chapterID }) {
+            return importedDraft
+        }
         guard chapterID == MockData.chapter.id else {
             throw APIError.missingResource("chapter \(chapterID)")
         }

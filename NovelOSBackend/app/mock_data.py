@@ -4,6 +4,8 @@ NOVEL = {
     "id": "novel_001",
     "title": "雨夜旧码头",
     "genre": "现实向",
+    "status": "active",
+    "language": "zh-Hans",
     "current_chapter_no": 4,
     "current_canon_version": 12,
     "bootstrap_status": "completed",
@@ -20,6 +22,99 @@ CHAPTER = {
     "current_version_id": None,
     "canon_version_used": 12,
 }
+
+IMPORTED_CHAPTERS = [
+    {
+        "chapter": {
+            "id": "chapter_001",
+            "novel_id": "novel_001",
+            "chapter_no": 1,
+            "title": "雨夜来信",
+            "status": "completed",
+            "target_word_count": 3000,
+            "approved_version_id": "draft_001_import_v1",
+            "current_version_id": "draft_001_import_v1",
+            "canon_version_used": 4,
+        },
+        "draft": {
+            "id": "draft_001_import_v1",
+            "chapter_id": "chapter_001",
+            "version_no": 1,
+            "text": """雨下到后半夜时，A 收到了一封没有署名的邮件。
+
+邮件里只有一张旧码头的照片。照片拍得很暗，仓库外墙被雨水洗得发黑，门口那盏坏掉多年的灯却亮着。A 盯着那一点光看了很久，直到屏幕自动暗下去。
+
+他知道旧码头不该有人去。三年前的案子在那里结束，也在那里被匆忙封存。档案写得干净，结论写得确定，可 A 一直记得母亲听见旧码头三个字时突然停住的手。
+
+照片下方还有一句话：如果你还想知道真相，明天去查那把旧锁。
+""",
+            "word_count": 224,
+            "audit_summary": None,
+            "source": "imported_source",
+            "created_at": APPLE_REFERENCE_NOW,
+        },
+    },
+    {
+        "chapter": {
+            "id": "chapter_002",
+            "novel_id": "novel_001",
+            "chapter_no": 2,
+            "title": "旧锁",
+            "status": "completed",
+            "target_word_count": 3000,
+            "approved_version_id": "draft_002_import_v1",
+            "current_version_id": "draft_002_import_v1",
+            "canon_version_used": 8,
+        },
+        "draft": {
+            "id": "draft_002_import_v1",
+            "chapter_id": "chapter_002",
+            "version_no": 1,
+            "text": """第二天清晨，A 没有先去警局。
+
+他绕到旧码头外围，从一条被杂草挡住的小路进去。铁门还在，锁也还在，锈迹沿着锁孔边缘结成一圈暗红色的线。A 拍下照片，把它和邮件里的那张反复对照。
+
+B 是在他离开前出现的。对方没有问他为什么在这里，只说这片地方早就封了，继续查下去对谁都没有好处。
+
+A 听见这句话时，反而确定 B 知道更多。不是因为 B 阻止他，而是因为 B 太熟悉这条小路，熟悉到不像偶然经过。
+""",
+            "word_count": 229,
+            "audit_summary": None,
+            "source": "imported_source",
+            "created_at": APPLE_REFERENCE_NOW,
+        },
+    },
+    {
+        "chapter": {
+            "id": "chapter_003",
+            "novel_id": "novel_001",
+            "chapter_no": 3,
+            "title": "没进档案的人",
+            "status": "completed",
+            "target_word_count": 3000,
+            "approved_version_id": "draft_003_import_v1",
+            "current_version_id": "draft_003_import_v1",
+            "canon_version_used": 12,
+        },
+        "draft": {
+            "id": "draft_003_import_v1",
+            "chapter_id": "chapter_003",
+            "version_no": 1,
+            "text": """C 把见面地点定在一间快打烊的便利店。
+
+她没有解释自己为什么现在才出现，只把一只旧录音笔推到 A 面前。录音笔外壳有裂痕，标签上写着旧案日期，字迹已经被磨得发浅。
+
+“当年有个人看见了码头里的事。”C 说，“但那个人没有出现在任何笔录里。”
+
+A 没有立刻碰录音笔。他想起 B 看见旧锁时那一瞬间的沉默，也想起母亲多年前在厨房里突然关掉水龙头的声音。所有线索都还很散，但它们第一次指向同一个方向。
+""",
+            "word_count": 225,
+            "audit_summary": None,
+            "source": "imported_source",
+            "created_at": APPLE_REFERENCE_NOW,
+        },
+    },
+]
 
 PROMPT_DRAFT = "第4章：A 去旧码头调查，遇到 B，发现 B 对旧案有所隐瞒。C 在结尾出现，给 A 一个关于目击者的新线索。整体气氛冷一点，不要太快揭露真相。"
 
@@ -196,6 +291,7 @@ CANON_PATCH = {
 WORLD_BIBLE_SECTIONS = [
     {
         "id": "wb_style",
+        "section_key": "style",
         "title": "叙事基调与文风",
         "content": "整体冷静、克制，避免夸张情绪宣泄。环境描写服务于人物心理和现实压力，不做纯景物铺陈。对话要留白，角色不直接说出真实心理。",
         "tags": ["style", "tone"],
@@ -206,6 +302,7 @@ WORLD_BIBLE_SECTIONS = [
     },
     {
         "id": "wb_logic",
+        "section_key": "logic",
         "title": "现实逻辑",
         "content": "故事发生在当代城市。人物调查、报警、出入封锁地点都必须符合现实社会规则，不能像游戏任务一样随意推进。",
         "tags": ["realism", "rules"],
@@ -223,8 +320,20 @@ CHARACTER_CARDS = [
         "aliases": [],
         "role": "主角",
         "stable_traits": ["克制", "不轻易承认恐惧"],
-        "current_state": "对 B 的怀疑加深，左肩受伤未愈。",
-        "dialogue_style": "短句，少解释，避免主动袒露脆弱。",
+        "current_state": {
+            "emotional": "对 B 的怀疑加深。",
+            "physical": "左肩受伤未愈。",
+            "goal": "确认 B 是否知道旧案关键细节。",
+            "summary": "对 B 的怀疑加深，左肩受伤未愈。",
+        },
+        "dialogue_style": {
+            "cadence": "短句，少解释。",
+            "taboo": "避免主动袒露脆弱。",
+            "summary": "短句，少解释，避免主动袒露脆弱。",
+        },
+        "knowledge_summary": {"old_case": "suspects", "B_involvement": "suspects"},
+        "do_not_auto_mention": False,
+        "default_visibility": "active_when_prompted",
         "relationships": [
             {
                 "id": "rel_A_B",
@@ -244,8 +353,20 @@ CHARACTER_CARDS = [
         "aliases": [],
         "role": "关键人物",
         "stable_traits": ["善于转移话题", "控制情绪"],
-        "current_state": "回避旧案追问，试图阻止 A 深查旧码头。",
-        "dialogue_style": "平稳、克制，习惯把核心问题转成现实阻碍。",
+        "current_state": {
+            "emotional": "回避旧案追问。",
+            "physical": "无明确伤病。",
+            "goal": "阻止 A 深查旧码头。",
+            "summary": "回避旧案追问，试图阻止 A 深查旧码头。",
+        },
+        "dialogue_style": {
+            "cadence": "平稳、克制。",
+            "strategy": "习惯把核心问题转成现实阻碍。",
+            "summary": "平稳、克制，习惯把核心问题转成现实阻碍。",
+        },
+        "knowledge_summary": {"old_case": "partial", "B_involvement": "known"},
+        "do_not_auto_mention": False,
+        "default_visibility": "active_when_prompted",
         "relationships": [
             {
                 "id": "rel_B_A",
@@ -259,6 +380,31 @@ CHARACTER_CARDS = [
         "last_active_chapter_no": 4,
         "canon_version": 12,
     },
+    {
+        "id": "char_C",
+        "name": "C",
+        "aliases": [],
+        "role": "线索提供者",
+        "stable_traits": ["谨慎", "只给必要信息"],
+        "current_state": {
+            "emotional": "保持距离。",
+            "physical": "无明确伤病。",
+            "goal": "把目击者线索交给 A。",
+            "summary": "保持距离，只在关键时刻交付线索。",
+        },
+        "dialogue_style": {
+            "cadence": "短促、留白。",
+            "strategy": "不解释来龙去脉，只给线索。",
+            "summary": "短促、留白，不解释来龙去脉。",
+        },
+        "knowledge_summary": {"witness": "known", "old_case": "partial"},
+        "do_not_auto_mention": False,
+        "default_visibility": "active_when_prompted",
+        "relationships": [],
+        "forbidden_behavior": ["不能提前解释目击者身份", "不能替 A 推理完整真相"],
+        "last_active_chapter_no": 4,
+        "canon_version": 12,
+    },
 ]
 
 MEMORY_FACTS = [
@@ -266,29 +412,36 @@ MEMORY_FACTS = [
         "id": "mem_001",
         "chapter_no": 3,
         "fact_type": "event",
+        "time_in_story": "第 3 章中段",
         "summary": "A 已经怀疑 B 隐瞒旧案。",
         "participants": ["A", "B"],
         "location": None,
         "evidence": "第 3 章中段",
         "canon_status": "confirmed",
         "canon_version": 12,
+        "metadata": {"source": "seed"},
+        "created_by": "seed",
     },
     {
         "id": "mem_002",
         "chapter_no": 2,
         "fact_type": "location",
+        "time_in_story": "第 2 章结尾",
         "summary": "旧码头被提及为旧案相关地点。",
         "participants": ["A"],
         "location": "旧码头",
         "evidence": "第 2 章结尾",
         "canon_status": "confirmed",
         "canon_version": 12,
+        "metadata": {"source": "seed"},
+        "created_by": "seed",
     },
 ]
 
 KNOWLEDGE_MATRIX = [
     {
         "id": "km_001",
+        "fact": "B 与旧案有关",
         "fact_title": "B 与旧案有关",
         "truth_status": "confirmed_author_only",
         "author_knowledge": "known",
@@ -305,11 +458,15 @@ KNOWLEDGE_MATRIX = [
             "char_B": "known",
             "char_C": "unknown",
         },
-        "allowed_narration": "A POV 只能写怀疑和观察，不能确认。",
+        "allowed_narration": {
+            "mode": "limited_pov",
+            "text": "A POV 只能写怀疑和观察，不能确认。",
+        },
         "canon_version": 12,
     },
     {
         "id": "km_002",
+        "fact": "旧案真正凶手",
         "fact_title": "旧案真正凶手",
         "truth_status": "author_only",
         "author_knowledge": "author_only",
@@ -324,7 +481,10 @@ KNOWLEDGE_MATRIX = [
             "char_A": "unknown",
             "char_B": "partial",
         },
-        "allowed_narration": "本阶段不得写出，不得通过旁白暗示过强。",
+        "allowed_narration": {
+            "mode": "forbidden",
+            "text": "本阶段不得写出，不得通过旁白暗示过强。",
+        },
         "canon_version": 12,
     },
 ]

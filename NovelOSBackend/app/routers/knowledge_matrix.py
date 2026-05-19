@@ -24,6 +24,9 @@ def _visibility_from_entry_payload(payload: dict) -> dict:
 def _storage_payload(entry: KnowledgeMatrixEntry) -> dict:
     payload = entry.model_dump(mode="json")
     payload["visibility"] = _visibility_from_entry_payload(payload)
+    payload["fact"] = payload.get("fact") or payload.get("fact_title")
+    if isinstance(payload.get("allowed_narration"), str):
+        payload["allowed_narration"] = {"text": payload["allowed_narration"]}
     return payload
 
 

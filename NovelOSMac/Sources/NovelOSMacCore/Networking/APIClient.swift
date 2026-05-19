@@ -9,6 +9,10 @@ public actor APIClient: ChapterWorkflowAPI, BaseDocumentsAPI, KnowledgeMatrixAPI
         self.session = session
     }
 
+    public func listChapters(novelID: String) async throws -> [Chapter] {
+        try await perform(Endpoint.listChapters(novelID: novelID))
+    }
+
     public func submitUserPrompt(chapterID: String, prompt: String) async throws {
         try await perform(try Endpoint.submitUserPrompt(chapterID: chapterID, prompt: prompt))
     }

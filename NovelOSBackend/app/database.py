@@ -6,6 +6,10 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
+from app.config import load_environment
+
+
+load_environment()
 
 DEFAULT_DATABASE_URL = "postgresql+psycopg://novelos:novelos@db:5432/novelos"
 

@@ -1,18 +1,21 @@
 from __future__ import annotations
 
-from typing import Literal, Optional
+from datetime import datetime
+from typing import Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class APIModel(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 class Novel(APIModel):
     id: str
     title: str
     genre: Optional[str] = None
+    status: str = "active"
+    language: str = "zh-Hans"
     current_chapter_no: Optional[int] = None
     current_canon_version: Optional[int] = None
     bootstrap_status: str
@@ -22,6 +25,8 @@ class NovelCreate(APIModel):
     id: Optional[str] = None
     title: str
     genre: Optional[str] = None
+    status: str = "active"
+    language: str = "zh-Hans"
     current_chapter_no: Optional[int] = None
     current_canon_version: Optional[int] = None
     bootstrap_status: str = "not_started"
@@ -30,6 +35,8 @@ class NovelCreate(APIModel):
 class NovelUpdate(APIModel):
     title: Optional[str] = None
     genre: Optional[str] = None
+    status: Optional[str] = None
+    language: Optional[str] = None
     current_chapter_no: Optional[int] = None
     current_canon_version: Optional[int] = None
     bootstrap_status: Optional[str] = None
@@ -45,6 +52,13 @@ class Chapter(APIModel):
     approved_version_id: Optional[str] = None
     current_version_id: Optional[str] = None
     canon_version_used: Optional[int] = None
+
+
+class ChapterCreate(APIModel):
+    id: Optional[str] = None
+    chapter_no: int
+    title: Optional[str] = None
+    target_word_count: int = 3000
 
 
 class AllowedEntity(APIModel):
@@ -105,6 +119,7 @@ class Draft(APIModel):
 class ContextPackSnapshot(APIModel):
     id: str
     chapter_id: str
+    canon_version: int = 1
     payload: dict
     created_at: float
 
@@ -115,15 +130,18 @@ class AgentRun(APIModel):
     chapter_id: Optional[str] = None
     agent_name: str
     run_type: str = "workflow"
+    model: Optional[str] = None
     summary: str
     status: str
-    timestamp_label: str
     payload: dict
     input_payload: dict = Field(default_factory=dict)
     output_payload: dict = Field(default_factory=dict)
+    input_json: dict = Field(default_factory=dict)
+    output_json: dict = Field(default_factory=dict)
+    token_usage: dict = Field(default_factory=dict)
     error_message: Optional[str] = None
     started_at: Optional[float] = None
-    finished_at: Optional[float] = None
+    completed_at: Optional[datetime] = None
     created_at: float
 
 
@@ -184,6 +202,7 @@ class CanonUpdatePatch(APIModel):
 
 class WorldBibleSection(APIModel):
     id: str
+    section_key: Optional[str] = None
     title: str
     content: str
     tags: list[str]
@@ -207,8 +226,11 @@ class CharacterCard(APIModel):
     aliases: list[str]
     role: str
     stable_traits: list[str]
-    current_state: str
-    dialogue_style: str
+    current_state: Union[dict, str]
+    dialogue_style: Union[dict, str]
+    knowledge_summary: dict = Field(default_factory=dict)
+    do_not_auto_mention: bool = False
+    default_visibility: str = "manual_only"
     relationships: list[CharacterRelationship]
     forbidden_behavior: list[str]
     last_active_chapter_no: Optional[int] = None
@@ -223,13 +245,14 @@ class CharacterKnowledge(APIModel):
 
 class KnowledgeMatrixEntry(APIModel):
     id: str
+    fact: Optional[str] = None
     fact_title: str
     truth_status: str
     author_knowledge: str
     reader_knowledge: str
     character_knowledge: list[CharacterKnowledge]
     visibility: Optional[dict] = None
-    allowed_narration: str
+    allowed_narration: Union[dict, str]
     canon_version: int
 
 
@@ -237,12 +260,15 @@ class MemoryFact(APIModel):
     id: str
     chapter_no: int
     fact_type: str
+    time_in_story: Optional[str] = None
     summary: str
     participants: list[str]
     location: Optional[str] = None
     evidence: str
     canon_status: str
     canon_version: int
+    metadata: dict = Field(default_factory=dict)
+    created_by: str = "system"
 
 
 class UserPromptRequest(APIModel):

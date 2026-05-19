@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+import json
 from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
+import httpx
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import JSON, Column, Float, ForeignKey, Integer, MetaData, String, Table, Text, create_engine, inspect, select
+from sqlalchemy import JSON, Column, Float, ForeignKey, Integer, MetaData, String, Table, Text, UniqueConstraint, create_engine, inspect, select
 from sqlalchemy.orm import sessionmaker
 
 from app.database import Base, get_session
@@ -15,10 +17,63 @@ from app.main import create_app
 from app.models import AgentRunModel, BootstrapImportModel, ChapterModel, DraftModel, NovelModel
 from app.seed import seed_database
 from app.services import run_audit_pipeline
+from app.llm.gateway import LLMResult, OpenAICompatibleGateway
+
+
+def json_from_request(request: httpx.Request) -> dict:
+    return json.loads(request.content.decode("utf-8"))
+
+
+class FakeGateway:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def complete_text(self, prompt: str, *, system=None, metadata=None) -> LLMResult:
+        self.calls.append((metadata or {}).get("agent", "text"))
+        return LLMResult(
+            content="这是 live fake 正文。",
+            model="fake-live",
+            token_usage={"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3},
+        )
+
+    def complete_structured(self, prompt: str, *, schema_name: str, system=None, metadata=None) -> LLMResult:
+        self.calls.append(schema_name)
+        payload_by_schema = {
+            "intent_parser": {
+                "entities": ["A", "B", "旧码头"],
+                "tone": "冷感",
+                "chapter_goal": "A 试探 B。",
+                "must_not_happen": ["不要揭露真相"],
+            },
+            "context_pack_summary": {
+                "summary": "本章只允许 A、B 和旧码头。",
+                "risk_notes": ["不要新增角色"],
+                "focus_entities": ["A", "B"],
+            },
+            "structured_prompt": {
+                "chapter_goal": "A 在旧码头试探 B。",
+                "must_happen": ["A 到旧码头", "B 回避问题"],
+                "must_not_happen": ["不要揭露旧案完整真相"],
+                "allowed_named_entities": [
+                    {"name": "A", "activation": "ACTIVE", "mention_budget": None},
+                    {"name": "B", "activation": "ACTIVE", "mention_budget": None},
+                    {"name": "旧码头", "activation": "ACTIVE", "mention_budget": None},
+                ],
+                "narrative_style": "第三人称有限视角，冷感克制。",
+                "version": 1,
+            },
+        }
+        return LLMResult(
+            content=json.dumps(payload_by_schema[schema_name], ensure_ascii=False),
+            model="fake-live",
+            token_usage={"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3},
+        )
 
 
 @pytest.fixture()
-def client(tmp_path) -> Generator[TestClient, None, None]:
+def client(tmp_path, monkeypatch) -> Generator[TestClient, None, None]:
+    monkeypatch.setenv("NOVEL_OS_IMPORT_STORAGE_DIR", str(tmp_path / "imports"))
+    monkeypatch.setenv("NOVEL_OS_LLM_MODE", "mock")
     engine = create_engine(
         f"sqlite:///{tmp_path / 'novelos_test.db'}",
         connect_args={"check_same_thread": False},
@@ -52,15 +107,25 @@ def test_health_and_seeded_reads(client: TestClient):
     characters = client.get("/api/novels/novel_001/characters")
     assert characters.status_code == 200
     assert characters.json()[0]["relationships"][0]["target_character_name"] == "B"
+    assert characters.json()[0]["current_state"]["summary"].startswith("对 B 的怀疑")
 
     memory = client.get("/api/novels/novel_001/memory")
     assert memory.status_code == 200
     assert memory.json()[0]["canon_status"] == "confirmed"
+    assert memory.json()[0]["metadata"]["source"] == "seed"
 
     matrix = client.get("/api/novels/novel_001/knowledge-matrix")
     assert matrix.status_code == 200
     assert matrix.json()[0]["character_knowledge"][0]["character_id"] == "char_A"
     assert matrix.json()[0]["visibility"]["char_A"] == "suspects"
+
+    chapters = client.get("/api/novels/novel_001/chapters")
+    assert chapters.status_code == 200
+    assert [chapter["chapter_no"] for chapter in chapters.json()] == [1, 2, 3, 4]
+
+    imported_draft = client.get("/api/chapters/chapter_001/draft/latest")
+    assert imported_draft.status_code == 200
+    assert "没有署名的邮件" in imported_draft.json()["text"]
 
 
 def test_novel_crud_and_bootstrap_flow(client: TestClient):
@@ -103,6 +168,10 @@ def test_novel_crud_and_bootstrap_flow(client: TestClient):
     assert imported.json()["status"] == "imported"
     assert imported.json()["imported_chapter_count"] == 3
 
+    first_chapter_draft = client.get("/api/chapters/novel_test_chapter_001/draft/latest")
+    assert first_chapter_draft.status_code == 200
+    assert first_chapter_draft.json()["text"] == "第一章正文"
+
     analyzed = client.post("/api/novels/novel_test/bootstrap/analyze")
     assert analyzed.status_code == 200
     assert analyzed.json()["status"] == "analyzed"
@@ -117,13 +186,94 @@ def test_novel_crud_and_bootstrap_flow(client: TestClient):
         chapters = session.scalars(
             select(ChapterModel).where(ChapterModel.novel_id == "novel_test")
         ).all()
+        drafts = session.scalars(
+            select(DraftModel).where(DraftModel.chapter_id.in_([chapter.id for chapter in chapters]))
+        ).all()
         import_agent = session.scalar(
             select(AgentRunModel).where(AgentRunModel.novel_id == "novel_test")
         )
         assert novel.bootstrap_status == "analyzed"
         assert len(imports) == 1
+        assert Path(imports[0].storage_path).exists()
         assert {chapter.chapter_no for chapter in chapters} == {1, 2, 3}
+        assert {chapter.status for chapter in chapters} == {"completed"}
+        assert len(drafts) == 3
         assert import_agent.run_type == "bootstrap"
+        assert import_agent.model == "mock"
+        assert import_agent.input_json["import_id"] == imports[0].id
+
+    created_chapter = client.post(
+        "/api/novels/novel_test/chapters",
+        json={"chapter_no": 4, "title": "第四章", "target_word_count": 1800},
+    )
+    assert created_chapter.status_code == 200
+    assert created_chapter.json()["id"] == "novel_test_chapter_004"
+    assert client.post(
+        "/api/novels/novel_test/chapters",
+        json={"chapter_no": 4, "title": "重复章节"},
+    ).status_code == 409
+    listed_chapters = client.get("/api/novels/novel_test/chapters").json()
+    assert [chapter["chapter_no"] for chapter in listed_chapters] == [1, 2, 3, 4]
+
+
+def test_empty_bootstrap_seed_mode(tmp_path):
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'empty_seed.db'}",
+        connect_args={"check_same_thread": False},
+        future=True,
+    )
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    Base.metadata.create_all(bind=engine)
+    with TestingSessionLocal() as session:
+        seed_database(session, mode="empty_bootstrap")
+        novel = session.scalar(select(NovelModel).where(NovelModel.id == "novel_001"))
+        chapters = session.scalars(select(ChapterModel)).all()
+        assert novel.bootstrap_status == "not_started"
+        assert novel.current_canon_version is None
+        assert chapters == []
+
+
+def test_openai_compatible_gateway_parses_structured_response():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/chat/completions"
+        body = json_from_request(request)
+        assert body["model"] == "test-model"
+        return httpx.Response(
+            200,
+            json={
+                "model": "test-model",
+                "choices": [{"message": {"content": "{\"ok\": true, \"value\": 7}"}}],
+                "usage": {"prompt_tokens": 3, "completion_tokens": 4, "total_tokens": 7},
+            },
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler), base_url="https://example.test")
+    gateway = OpenAICompatibleGateway(
+        api_key="test-key",
+        base_url="https://example.test/v1",
+        model="test-model",
+        client=client,
+    )
+    result = gateway.complete_structured("hello", schema_name="unit_test")
+    assert result.structured == {"ok": True, "value": 7}
+    assert result.token_usage["total_tokens"] == 7
+
+
+def test_live_mode_agents_use_injected_gateway(monkeypatch):
+    monkeypatch.setenv("NOVEL_OS_LLM_MODE", "live")
+    from app.orchestrator import ChapterWorkflowOrchestrator
+
+    gateway = FakeGateway()
+    results = ChapterWorkflowOrchestrator(gateway).run_prompt(
+        novel_id="novel_live",
+        chapter_id="chapter_live",
+        prompt="A 去旧码头见 B。",
+        context_payload={"allowed_named_entities": ["A", "B", "旧码头"]},
+    )
+    assert results[0].model == "fake-live"
+    assert results[0].payload["entities"] == ["A", "B", "旧码头"]
+    assert results[2].payload["chapter_id"] == "chapter_live"
+    assert gateway.calls == ["intent_parser", "context_pack_summary", "structured_prompt"]
 
 
 def test_base_documents_crud_and_character_delete_is_absent(client: TestClient):
@@ -149,9 +299,9 @@ def test_base_documents_crud_and_character_delete_is_absent(client: TestClient):
     card["name"] = "测试人物"
     created_card = client.post("/api/novels/novel_001/characters", json=card)
     assert created_card.status_code == 200
-    card["current_state"] = "测试状态"
+    card["current_state"] = {"summary": "测试状态", "goal": "测试目标"}
     updated_card = client.patch("/api/novels/novel_001/characters/char_test", json=card)
-    assert updated_card.json()["current_state"] == "测试状态"
+    assert updated_card.json()["current_state"]["summary"] == "测试状态"
     assert client.delete("/api/novels/novel_001/characters/char_test").status_code == 405
 
     fact = {
@@ -159,11 +309,14 @@ def test_base_documents_crud_and_character_delete_is_absent(client: TestClient):
         "chapter_no": 4,
         "fact_type": "event",
         "summary": "测试事实",
+        "time_in_story": "第 4 章",
         "participants": ["A"],
         "location": "旧码头",
         "evidence": "手动测试",
         "canon_status": "confirmed",
         "canon_version": 12,
+        "metadata": {"source": "test"},
+        "created_by": "test",
     }
     assert client.post("/api/novels/novel_001/memory", json=fact).status_code == 200
     fact["summary"] = "更新后的测试事实"
@@ -174,6 +327,7 @@ def test_base_documents_crud_and_character_delete_is_absent(client: TestClient):
 def test_knowledge_matrix_crud(client: TestClient):
     entry = {
         "id": "km_test",
+        "fact": "测试事实",
         "fact_title": "测试事实",
         "truth_status": "author_only",
         "author_knowledge": "known",
@@ -181,7 +335,7 @@ def test_knowledge_matrix_crud(client: TestClient):
         "character_knowledge": [
             {"character_id": "char_A", "character_name": "A", "state": "unknown"}
         ],
-        "allowed_narration": "不能确认。",
+        "allowed_narration": {"text": "不能确认。"},
         "canon_version": 12,
     }
 
@@ -189,9 +343,9 @@ def test_knowledge_matrix_crud(client: TestClient):
     assert created.status_code == 200
     assert created.json()["fact_title"] == "测试事实"
 
-    entry["allowed_narration"] = "只能写怀疑。"
+    entry["allowed_narration"] = {"text": "只能写怀疑。"}
     updated = client.patch("/api/novels/novel_001/knowledge-matrix/km_test", json=entry)
-    assert updated.json()["allowed_narration"] == "只能写怀疑。"
+    assert updated.json()["allowed_narration"]["text"] == "只能写怀疑。"
 
     assert client.delete("/api/novels/novel_001/knowledge-matrix/km_test").status_code == 204
 
@@ -221,7 +375,7 @@ def test_chapter_workflow_five_step_mock_flow(client: TestClient):
     ]
     assert prompt_runs[0]["novel_id"] == "novel_001"
     assert prompt_runs[0]["run_type"] == "prompt"
-    assert prompt_runs[0]["output_payload"]["entities"] == ["A", "B", "C", "旧码头", "旧案"]
+    assert prompt_runs[0]["output_json"]["entities"] == ["A", "B", "C", "旧码头", "旧案"]
     assert prompt_runs[1]["payload"]["new_entity_policy"] == "allow_minor_unnamed_only"
 
     structured_json["chapter_goal"] += " 加强结尾悬念。"
@@ -264,6 +418,8 @@ def test_chapter_workflow_five_step_mock_flow(client: TestClient):
 
     assert client.post("/api/chapters/chapter_004/draft/review", json={"decision": "approve"}).status_code == 204
     assert client.post("/api/chapters/chapter_004/approve-final-text").status_code == 204
+    extraction_runs = client.get("/api/chapters/chapter_004/agent-runs").json()
+    assert any(run["agent_name"] == "Extraction Agent" for run in extraction_runs)
 
     patch = client.get("/api/chapters/chapter_004/canon-update-patch").json()
     assert patch["target_canon_version"] == 13
@@ -276,8 +432,12 @@ def test_chapter_workflow_five_step_mock_flow(client: TestClient):
     with session_factory() as session:
         novel = session.scalar(select(NovelModel).where(NovelModel.id == "novel_001"))
         chapter = session.scalar(select(ChapterModel).where(ChapterModel.id == "chapter_004"))
+        canon_merge_run = session.scalar(
+            select(AgentRunModel).where(AgentRunModel.agent_name == "Canon Merge Agent")
+        )
         assert novel.current_canon_version == 13
         assert chapter.status == "completed"
+        assert canon_merge_run is not None
 
 
 def test_s0_audit_blocks_draft_approval(client: TestClient):
@@ -345,16 +505,21 @@ def test_alembic_migration_upgrade_and_downgrade(tmp_path):
     command.upgrade(config, "head")
     inspector = inspect(engine)
     assert "bootstrap_imports" in inspector.get_table_names()
+    assert "structured_prompts" in inspector.get_table_names()
+    assert "canon_update_patches" in inspector.get_table_names()
+    assert "canon_edit_history" in inspector.get_table_names()
     agent_run_columns = {column["name"] for column in inspector.get_columns("agent_runs")}
-    assert {"novel_id", "run_type", "input_payload", "output_payload"} <= agent_run_columns
+    assert {"novel_id", "run_type", "model", "input_json", "output_json", "token_usage", "completed_at"} <= agent_run_columns
+    assert "timestamp_label" not in agent_run_columns
     audit_columns = {column["name"] for column in inspector.get_columns("audit_reports")}
-    assert {"passed", "highest_severity"} <= audit_columns
+    assert {"pass", "highest_severity"} <= audit_columns
     matrix_columns = {column["name"] for column in inspector.get_columns("knowledge_matrix_entries")}
     assert "visibility" in matrix_columns
 
     command.downgrade(config, "base")
     inspector = inspect(engine)
     assert "bootstrap_imports" not in inspector.get_table_names()
+    assert "structured_prompts" not in inspector.get_table_names()
     assert "visibility" not in {column["name"] for column in inspector.get_columns("knowledge_matrix_entries")}
 
 
@@ -382,6 +547,21 @@ def _create_legacy_schema(engine):
         metadata,
         Column("id", String, primary_key=True),
         Column("chapter_id", String, ForeignKey("chapters.id"), nullable=False),
+        Column("version_no", Integer, nullable=False),
+        Column("text", Text, nullable=False),
+        Column("word_count", Integer, nullable=False),
+        Column("audit_summary", JSON),
+        Column("source", String, nullable=False),
+        Column("created_at", Float, nullable=False),
+    )
+    Table(
+        "context_packs",
+        metadata,
+        Column("id", String, primary_key=True),
+        Column("chapter_id", String, ForeignKey("chapters.id"), nullable=False),
+        Column("payload", JSON, nullable=False),
+        Column("created_at", Float, nullable=False),
+        UniqueConstraint("chapter_id", name="uq_context_pack_chapter"),
     )
     Table(
         "agent_runs",
@@ -408,6 +588,35 @@ def _create_legacy_schema(engine):
         Column("created_at", Float, nullable=False),
     )
     Table(
+        "world_bible_sections",
+        metadata,
+        Column("id", String, primary_key=True),
+        Column("novel_id", String, ForeignKey("novels.id"), nullable=False),
+        Column("title", String, nullable=False),
+        Column("content", Text, nullable=False),
+        Column("tags", JSON, nullable=False),
+        Column("importance", String, nullable=False),
+        Column("activation_policy", String, nullable=False),
+        Column("canon_version", Integer, nullable=False),
+        Column("updated_at", Float, nullable=False),
+    )
+    Table(
+        "characters",
+        metadata,
+        Column("id", String, primary_key=True),
+        Column("novel_id", String, ForeignKey("novels.id"), nullable=False),
+        Column("name", String, nullable=False),
+        Column("aliases", JSON, nullable=False),
+        Column("role", String, nullable=False),
+        Column("stable_traits", JSON, nullable=False),
+        Column("current_state", Text, nullable=False),
+        Column("dialogue_style", Text, nullable=False),
+        Column("relationships", JSON, nullable=False),
+        Column("forbidden_behavior", JSON, nullable=False),
+        Column("last_active_chapter_no", Integer),
+        Column("canon_version", Integer, nullable=False),
+    )
+    Table(
         "knowledge_matrix_entries",
         metadata,
         Column("id", String, primary_key=True),
@@ -418,6 +627,20 @@ def _create_legacy_schema(engine):
         Column("reader_knowledge", String, nullable=False),
         Column("character_knowledge", JSON, nullable=False),
         Column("allowed_narration", Text, nullable=False),
+        Column("canon_version", Integer, nullable=False),
+    )
+    Table(
+        "memory_facts",
+        metadata,
+        Column("id", String, primary_key=True),
+        Column("novel_id", String, ForeignKey("novels.id"), nullable=False),
+        Column("chapter_no", Integer, nullable=False),
+        Column("fact_type", String, nullable=False),
+        Column("summary", Text, nullable=False),
+        Column("participants", JSON, nullable=False),
+        Column("location", String),
+        Column("evidence", Text, nullable=False),
+        Column("canon_status", String, nullable=False),
         Column("canon_version", Integer, nullable=False),
     )
     metadata.create_all(engine)

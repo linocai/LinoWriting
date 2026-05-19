@@ -21,6 +21,9 @@ public final class ChapterWorkflowStore {
 
     public var novel: Novel
     public var chapter: Chapter
+    public var chapters: [Chapter]
+    public var chapterDrafts: [String: Draft]
+    public var selectedReadableChapterID: String?
     public var currentStep: ChapterStep = .promptInput
     public var highestUnlockedStep: ChapterStep = .promptInput
     public var promptDraft: String
@@ -37,6 +40,9 @@ public final class ChapterWorkflowStore {
         self.api = api
         novel = MockData.novel
         chapter = MockData.chapter
+        chapters = MockData.chapters
+        chapterDrafts = Dictionary(uniqueKeysWithValues: (MockData.importedChapterDrafts + [MockData.draft]).map { ($0.chapterId, $0) })
+        selectedReadableChapterID = MockData.importedChapters.first?.id
         promptDraft = MockData.promptDraft
         reviewFeedback = "B 可以更克制一点，不要让读者太早判断他一定有问题。结尾 C 的线索要短促，别展开 C 的背景。"
     }
@@ -75,6 +81,42 @@ public final class ChapterWorkflowStore {
 
     public func savePromptDraft() {
         statusMessage = "Prompt 草稿已保存。"
+    }
+
+    public func loadReadableChapters() async {
+        isLoading = true
+        error = nil
+        defer { isLoading = false }
+
+        do {
+            let loadedChapters = try await api.listChapters(novelID: novel.id)
+                .sorted { $0.chapterNo < $1.chapterNo }
+            var loadedDrafts: [String: Draft] = [:]
+
+            for loadedChapter in loadedChapters {
+                if let latestDraft = try? await api.getLatestDraft(chapterID: loadedChapter.id) {
+                    loadedDrafts[loadedChapter.id] = latestDraft
+                }
+            }
+
+            chapters = loadedChapters
+            chapterDrafts = loadedDrafts
+            if let selectedID = selectedReadableChapterID,
+               loadedChapters.contains(where: { $0.id == selectedID }) {
+                selectedReadableChapterID = selectedID
+            } else {
+                selectedReadableChapterID = loadedChapters.first?.id
+            }
+            if let currentChapter = loadedChapters.first(where: { $0.id == chapter.id }) {
+                chapter = currentChapter
+            }
+            if let currentDraft = loadedDrafts[chapter.id] {
+                draft = currentDraft
+                auditSummary = currentDraft.auditSummary
+            }
+        } catch {
+            handle(error)
+        }
     }
 
     public func generateStructuredPrompt() async {

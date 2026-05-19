@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from logging.config import fileConfig
+import os
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
@@ -16,8 +17,15 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+def resolved_url() -> str:
+    configured_url = config.get_main_option("sqlalchemy.url")
+    if configured_url == "sqlite:///./novelos_dev.db" and os.getenv("DATABASE_URL"):
+        return database_url()
+    return configured_url or database_url()
+
+
 def run_migrations_offline() -> None:
-    url = config.get_main_option("sqlalchemy.url") or database_url()
+    url = resolved_url()
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -32,7 +40,7 @@ def run_migrations_offline() -> None:
 def run_migrations_online() -> None:
     config.set_main_option(
         "sqlalchemy.url",
-        config.get_main_option("sqlalchemy.url") or database_url(),
+        resolved_url(),
     )
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),

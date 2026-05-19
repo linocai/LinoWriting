@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -10,6 +10,38 @@ from app.services import require_novel
 router = APIRouter(prefix="/api/novels/{novel_id}", tags=["base-documents"])
 
 
+def _character_payload(card: CharacterCard) -> dict:
+    payload = card.model_dump(mode="json")
+    if isinstance(payload.get("current_state"), str):
+        payload["current_state"] = {"summary": payload["current_state"]}
+    if isinstance(payload.get("dialogue_style"), str):
+        payload["dialogue_style"] = {"summary": payload["dialogue_style"]}
+    return payload
+
+
+def _memory_payload(fact: MemoryFact) -> dict:
+    payload = fact.model_dump(mode="json")
+    payload["metadata_json"] = payload.pop("metadata", {})
+    return payload
+
+
+def _memory_response(row: MemoryFactModel) -> dict:
+    return {
+        "id": row.id,
+        "chapter_no": row.chapter_no,
+        "fact_type": row.fact_type,
+        "time_in_story": row.time_in_story,
+        "summary": row.summary,
+        "participants": row.participants,
+        "location": row.location,
+        "evidence": row.evidence,
+        "canon_status": row.canon_status,
+        "canon_version": row.canon_version,
+        "metadata": row.metadata_json,
+        "created_by": row.created_by,
+    }
+
+
 def _require_world_section(session: Session, novel_id: str, section_id: str) -> WorldBibleSectionModel:
     row = session.scalar(
         select(WorldBibleSectionModel).where(
@@ -18,8 +50,6 @@ def _require_world_section(session: Session, novel_id: str, section_id: str) -> 
         )
     )
     if row is None:
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=404, detail=f"World Bible section not found: {section_id}")
     return row
 
@@ -32,8 +62,6 @@ def _require_character(session: Session, novel_id: str, character_id: str) -> Ch
         )
     )
     if row is None:
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=404, detail=f"Character not found: {character_id}")
     return row
 
@@ -46,8 +74,6 @@ def _require_memory_fact(session: Session, novel_id: str, fact_id: str) -> Memor
         )
     )
     if row is None:
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=404, detail=f"Memory fact not found: {fact_id}")
     return row
 
@@ -123,7 +149,7 @@ def create_character_card(
     session: Session = Depends(get_session),
 ):
     require_novel(session, novel_id)
-    row = CharacterCardModel(novel_id=novel_id, **card.model_dump())
+    row = CharacterCardModel(novel_id=novel_id, **_character_payload(card))
     session.add(row)
     session.commit()
     session.refresh(row)
@@ -139,7 +165,7 @@ def update_character_card(
 ):
     require_novel(session, novel_id)
     row = _require_character(session, novel_id, character_id)
-    for key, value in card.model_dump().items():
+    for key, value in _character_payload(card).items():
         if key != "id":
             setattr(row, key, value)
     session.commit()
@@ -150,11 +176,12 @@ def update_character_card(
 @router.get("/memory", response_model=list[MemoryFact])
 def get_memory_facts(novel_id: str, session: Session = Depends(get_session)):
     require_novel(session, novel_id)
-    return session.scalars(
+    rows = session.scalars(
         select(MemoryFactModel)
         .where(MemoryFactModel.novel_id == novel_id)
         .order_by(MemoryFactModel.id)
     ).all()
+    return [_memory_response(row) for row in rows]
 
 
 @router.post("/memory", response_model=MemoryFact)
@@ -164,11 +191,11 @@ def create_memory_fact(
     session: Session = Depends(get_session),
 ):
     require_novel(session, novel_id)
-    row = MemoryFactModel(novel_id=novel_id, **fact.model_dump())
+    row = MemoryFactModel(novel_id=novel_id, **_memory_payload(fact))
     session.add(row)
     session.commit()
     session.refresh(row)
-    return row
+    return _memory_response(row)
 
 
 @router.patch("/memory/{fact_id}", response_model=MemoryFact)
@@ -180,12 +207,12 @@ def update_memory_fact(
 ):
     require_novel(session, novel_id)
     row = _require_memory_fact(session, novel_id, fact_id)
-    for key, value in fact.model_dump().items():
+    for key, value in _memory_payload(fact).items():
         if key != "id":
             setattr(row, key, value)
     session.commit()
     session.refresh(row)
-    return row
+    return _memory_response(row)
 
 
 @router.delete("/memory/{fact_id}", status_code=204)

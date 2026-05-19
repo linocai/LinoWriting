@@ -30,6 +30,7 @@ public struct Chapter: Identifiable, Codable, Equatable, Sendable {
 }
 
 public enum ChapterStatus: String, Codable, Equatable, Sendable {
+    case imported
     case draftInput
     case structuredPromptReady
     case structuredPromptApproved
