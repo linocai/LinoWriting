@@ -1,100 +1,68 @@
-# NovelOS HZ Deployment State
+# LinoI v1.0 Local State
 
 ## Goal
 
-Run NovelOS locally while HZ cloud deployment is blocked, with the macOS app temporarily pointed at `http://127.0.0.1:7773`.
+Ship LinoI v1.0 as a local-only production app: no cloud deployment, no accounts, no multi-device sync. The current authority file is `/Users/linotsai/Lino/LinoWriting/v1.0上线步骤.md`.
 
-## Codebase Orientation
+## Current Position
 
-- Product shape: NovelOS is a macOS + backend "novel operating system", not a chat UI. The user-facing chapter workflow must stay at five actions: prompt input, structured prompt review, draft review/revision, final approval, and canon patch confirmation.
-- Current roadmap phase: `roadmap.md` defines Phase A as the active deterministic mock runtime. Phase B swaps mock internals for real LLM agents; Phase C adds retrieval/canon services; Phase D adds production operations.
-- Frontend: `NovelOSMac` is a Swift 6.3, macOS 14 SwiftUI app using Observation stores, async APIs, and a three-column shell. Main entry points are `NovelOSMac/Sources/NovelOSMac/NovelOSMac.swift`, `Views/RootShellView.swift`, `Views/ChapterStudio/*`, and stores in `NovelOSMacCore/Stores.swift`.
-- Backend: `NovelOSBackend` is FastAPI + SQLAlchemy + Alembic. Current APIs cover novels, bootstrap import/analyze, five-step chapter workflow, base documents, knowledge matrix, admin LLM provider settings, owner-token protection, and OpenAI-compatible live gateway plumbing.
-- API wiring: Swift `APIClient` implements all protocol APIs in `NovelOSMacCore/Networking/*`; backend route implementations live under `NovelOSBackend/app/routers/*`, with orchestration in `app/orchestrator.py` and persistence/workflow helpers in `app/services.py`.
-- Important historical note: `audit_report_v1.md` is older than the latest backend commits. Treat it as historical context; current code already includes many items that report listed as missing.
+- Local backend runs at `http://127.0.0.1:7773` via LaunchAgent `top.linotsai.novelos.local7773`.
+- Packaged app is `/Users/linotsai/Lino/LinoWriting/NovelOSMac/dist/LinoI.app`.
+- App bundle name/display name is `LinoI`; bundle id is `com.lino.linoi`; icon resource is `LinoI.icns`.
+- Active LLM provider is `default` (`deepseek-v4-pro`, timeout 180s). The previous `grok` provider had connection reset failures and is not active.
+- Do not change API keys, delete/rebuild local data, tag a final release, or deploy to cloud without explicit user confirmation.
 
-## Verified Baseline
+## Completed In This Slice
 
-- Backend tests: `cd NovelOSBackend && .venv/bin/python -m pytest` => 14 passed.
-- Swift tests: `cd NovelOSMac && swift test` => 22 passed.
-- Local backend service: `curl -fsS http://127.0.0.1:7773/healthz` => `{"status":"ok"}`; LaunchAgent `top.linotsai.novelos.local7773` is running.
-- Git state while orienting: `main` is ahead of `origin/main` by 5 commits, with no tracked working-tree changes.
+- Fixed live LLM errors so backend returns retryable 502 details and records failed `AgentRunModel` rows instead of silently stalling.
+- Reduced Prompt Pipeline live calls: Intent Parser and Context Compiler are local deterministic steps; Prompt Expander remains the LLM structured prompt step.
+- Fixed live Canon Patch flow:
+  - Extraction Agent now uses the injected live gateway.
+  - Real novels no longer receive `mock_data.CANON_PATCH`.
+  - Approve-final runs extraction before patch creation.
+  - Confirming a patch writes accepted items into Memory, Knowledge Matrix, World Bible, and character current state where matchable, plus edit history.
+- Fixed production data risks:
+  - Live draft IDs now include `chapter.id`, avoiding collisions across books.
+  - Live audit reruns start from a clean summary instead of inheriting stale S0/S1/S2 issues.
+  - Single-letter forbidden names no longer flag geometry phrases like `D点`.
+- Added local scripts:
+  - `NovelOSBackend/scripts/local_service.sh`
+  - `NovelOSBackend/scripts/backup_local.sh`
+  - `NovelOSBackend/scripts/restore_local.sh`
+- Backup archives now exclude `.env`, API keys, owner tokens, and unredacted database URLs. Restore supports `LINOI_DRY_RUN_RESTORE=1`.
+- Updated backend README and `v1.0上线步骤.md` with local service and backup/restore commands.
 
-## Latest Fix
+## Real Acceptance Sample
 
-- Fixed bootstrap analysis for newly imported books: `POST /api/novels/{novel_id}/bootstrap/analyze` now runs `ImportAgent` through the configured LLM gateway in live mode, stores generated World Bible sections, Character Cards, Memory facts, and Knowledge Matrix entries, and keeps a deterministic fallback for tests/mock mode.
-- Updated Swift decoding so live backend JSON objects such as `current_state`, `dialogue_style`, and `allowed_narration` display correctly in the macOS app.
-- Re-ran analysis for local book `novel_c9703207`; it now has World Bible, Character Cards, Memory, and Knowledge Matrix records.
-- Repackaged `/Users/linotsai/Lino/LinoWriting/NovelOSMac/dist/NovelOSMac.app` after the decoding fix.
-- Renamed the packaged macOS app to `LinoI`, changed its bundle id to `com.lino.linoi`, set the default package icon source to `/Users/linotsai/Pictures/GPT Image/rounded-i-appicon-v1.png`, and produced `/Users/linotsai/Lino/LinoWriting/NovelOSMac/dist/LinoI.app`.
+Novel: `novel_c9703207` / `骁扬的青春`
 
-## Completed
+- Bootstrap status: `analyzed`
+- Current canon version: `4`
+- Chapters 1-3: imported and completed
+- Chapter 4: completed, approved draft `novel_c9703207_chapter_004_draft_v3`, chars 4266, audit S0/S1/S2 = 0/0/0
+- Chapter 5: completed, approved draft `novel_c9703207_chapter_005_draft_v1`, chars 5108, audit S0/S1/S2 = 0/0/0
+- Chapter 6: completed, approved draft `novel_c9703207_chapter_006_draft_v1`, chars 3525, audit S0/S1/S2 = 0/0/0
+- Base file counts after restart: World Bible 22, Character Cards 5, Memory 42, Knowledge Matrix 26
+- A real failed Prompt Pipeline run for chapter 4 is recorded as `status=failed`, `payload.retryable=true`, then later workflow retry succeeded.
 
-- Read `/Users/linotsai/HZ云使用手册.md`.
-- Switched production domain references from `write.neluvee.top` to `write.linotsai.top`.
-- Backend production config and app source were prepared locally.
-- Local backend tests passed with `.venv/bin/pytest`: 13 passed.
-- Local Swift tests passed after the domain switch: 18 passed.
-- Repackaged macOS app: `/Users/linotsai/Lino/LinoWriting/NovelOSMac/dist/NovelOSMac.app`.
-- Synced `NovelOSBackend` and the ignored production `.env` to HZ:
-  - Remote app dir: `/home/deploy/novelos`
-  - Remote env: `/home/deploy/novelos/deploy/.env`
-- Switched macOS default backend URL to `http://127.0.0.1:7773`.
-- Wrote the current macOS user default `com.lino.novelosmac NovelOSBackendURL` to `http://127.0.0.1:7773`.
-- Started local backend as LaunchAgent `top.linotsai.novelos.local7773`.
-- Verified local backend:
-  - `GET http://127.0.0.1:7773/healthz`
-  - `GET http://127.0.0.1:7773/api/novels`
-- Repackaged macOS app after local URL switch.
-- Added macOS book library support:
-  - Sidebar can list/switch books from `GET /api/novels`.
-  - Sidebar can create a new book via `POST /api/novels`.
-  - Switching books reloads Chapter Studio, Base Files, and Knowledge Matrix for the selected novel.
-- Corrected the new-book bootstrap workflow:
-  - New books no longer jump straight into Chapter Studio.
-  - Chapters List shows a first-three-chapters import panel when bootstrap is not ready.
-  - Import calls `POST /api/novels/{novel_id}/bootstrap/import-first-three-chapters`.
-  - Analyze calls `POST /api/novels/{novel_id}/bootstrap/analyze`.
-  - After import/analyze, the app creates chapter 4 and switches to Chapter Studio.
-- Swift tests passed after book library/bootstrap work: 21 tests.
+## Verification
 
-## Current Blocker
+- Backend: `cd NovelOSBackend && .venv/bin/python -m pytest` -> 17 passed.
+- Swift: `cd NovelOSMac && swift test` -> 23 passed.
+- Package: `cd NovelOSMac && Scripts/package_app.sh` -> packaged `dist/LinoI.app`.
+- Signature: `cd NovelOSMac && codesign --verify --deep --strict dist/LinoI.app` -> passed.
+- App launch: `open dist/LinoI.app` started process `dist/LinoI.app/Contents/MacOS/LinoI`.
+- Persistence: backend restart preserved chapters 4-6, canon version 4, and base file counts.
+- Backup: created `/Users/linotsai/Lino/LinoWriting/NovelOSBackend/backups/linoi-local-20260520-161908.tar.gz`.
+- Restore dry run: `LINOI_DRY_RUN_RESTORE=1 scripts/restore_local.sh ...` -> OK.
 
-- `docker compose -f docker-compose.prod.yml up -d --build` on HZ failed while pulling `postgres:16-alpine` from Docker Hub due to network timeout.
-- After attempting `sudo systemctl restart docker`, SSH to `deploy@118.178.122.194` began timing out during banner exchange.
-- Public homepage health (`https://linotsai.top/health`) still returned `ok`, so the host is at least partially reachable; SSH is the active blocker.
-- This cloud blocker is parked for now; local service is the active route.
+## Known Risks And Next Actions
 
-## Next Action
-
-For local work, use:
+- Full destructive restore to the active local database was not executed because it replaces current data and requires separate explicit confirmation.
+- Final release freeze, Git tag, credential rotation, and any cloud deployment remain blocked pending user confirmation.
+- LLM latency is still high. The workflow is functional with timeout 180s, but provider/model choice may need later tuning.
+- First command to inspect on resume:
 
 ```bash
-curl -fsS http://127.0.0.1:7773/healthz
-launchctl print gui/$(id -u)/top.linotsai.novelos.local7773
+git status --short && curl -fsS http://127.0.0.1:7773/healthz
 ```
-
-To stop the local service:
-
-```bash
-launchctl bootout gui/$(id -u) top.linotsai.novelos.local7773
-```
-
-When returning to cloud, first check when SSH recovers:
-
-```bash
-ssh -o ConnectTimeout=20 deploy@118.178.122.194 'hostname && uptime && systemctl is-active docker || true'
-```
-
-Then continue:
-
-1. Restore Docker responsiveness.
-2. Configure a usable image mirror or otherwise make Postgres/API image pulls reliable.
-3. Run `/home/deploy/novelos/deploy/docker-compose.prod.yml`.
-4. Install Nginx site for `write.linotsai.top`, issue/reuse the certificate, test, and reload.
-5. Verify `https://write.linotsai.top/healthz` and token-protected API calls.
-
-## Notes
-
-- Do not print `.env` or owner token contents.
-- Do not local ping the new domain; DNS was already configured by the user.

@@ -12,6 +12,8 @@ from sqlalchemy.orm import sessionmaker
 from app import models  # noqa: F401
 from app.config import env_flag, env_list, load_environment, owner_token, require_owner_token
 from app.database import Base, SessionLocal, engine
+from app.errors import llm_error_response
+from app.llm.gateway import LLMGatewayError
 from app.routers import admin, base_documents, chapter_workflow, knowledge_matrix, novels
 from app.seed import seed_database
 
@@ -53,6 +55,10 @@ def create_app(init_on_startup: bool = True) -> FastAPI:
     @app.get("/healthz")
     def healthz():
         return {"status": "ok"}
+
+    @app.exception_handler(LLMGatewayError)
+    async def llm_gateway_error_handler(request: Request, exc: LLMGatewayError):
+        return llm_error_response(exc)
 
     @app.middleware("http")
     async def owner_token_middleware(request: Request, call_next):

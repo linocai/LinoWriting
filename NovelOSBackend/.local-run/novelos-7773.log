@@ -164,3 +164,158 @@ INFO:     127.0.0.1:53130 - "GET /api/novels/novel_001/memory HTTP/1.1" 200 OK
 INFO:     127.0.0.1:53129 - "GET /api/novels/novel_001/characters HTTP/1.1" 200 OK
 INFO:     127.0.0.1:53131 - "GET /api/novels/novel_001/world-bible HTTP/1.1" 200 OK
 INFO:     127.0.0.1:53129 - "GET /api/novels/novel_001/knowledge-matrix HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53129 - "GET /api/novels/novel_001/chapters HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53129 - "GET /api/chapters/chapter_001/draft/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53129 - "GET /api/chapters/chapter_002/draft/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53129 - "GET /api/chapters/chapter_003/draft/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53129 - "GET /api/chapters/chapter_004/draft/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53129 - "GET /api/novels/novel_001/knowledge-matrix HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53192 - "GET /api/novels/novel_c9703207/chapters HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53192 - "GET /api/chapters/novel_c9703207_chapter_001/draft/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53192 - "GET /api/chapters/novel_c9703207_chapter_002/draft/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53192 - "GET /api/chapters/novel_c9703207_chapter_003/draft/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53192 - "GET /api/chapters/novel_c9703207_chapter_004/draft/latest HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:53192 - "GET /api/novels/novel_c9703207/world-bible HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53193 - "GET /api/novels/novel_c9703207/characters HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53194 - "GET /api/novels/novel_c9703207/memory HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53192 - "GET /api/novels/novel_c9703207/knowledge-matrix HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53277 - "GET /api/novels/novel_c9703207/characters HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53276 - "GET /api/novels/novel_c9703207/world-bible HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53278 - "GET /api/novels/novel_c9703207/memory HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53626 - "GET /api/novels/novel_c9703207/world-bible HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53627 - "GET /api/novels/novel_c9703207/characters HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53628 - "GET /api/novels/novel_c9703207/memory HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53836 - "GET /api/novels/novel_c9703207/world-bible HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53838 - "GET /api/novels/novel_c9703207/memory HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53837 - "GET /api/novels/novel_c9703207/characters HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52456 - "GET /api/novels/novel_c9703207/characters HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52455 - "GET /api/novels/novel_c9703207/world-bible HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52457 - "GET /api/novels/novel_c9703207/memory HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52455 - "GET /api/novels/novel_c9703207/world-bible HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52456 - "GET /api/novels/novel_c9703207/characters HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52457 - "GET /api/novels/novel_c9703207/memory HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52455 - "GET /api/novels/novel_c9703207/knowledge-matrix HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52455 - "GET /api/novels/novel_c9703207/knowledge-matrix HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52458 - "GET /api/novels/novel_c9703207/chapters HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52458 - "GET /api/chapters/novel_c9703207_chapter_001/draft/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52458 - "GET /api/chapters/novel_c9703207_chapter_002/draft/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52458 - "GET /api/chapters/novel_c9703207_chapter_003/draft/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52458 - "GET /api/chapters/novel_c9703207_chapter_004/draft/latest HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:53183 - "GET /healthz HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53184 - "GET /api/novels HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53783 - "GET /healthz HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53788 - "GET /api/novels/novel_c9703207/chapters HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53790 - "GET /api/novels/novel_c9703207/characters HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53789 - "GET /api/novels/novel_c9703207/world-bible HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53796 - "GET /api/novels/novel_c9703207/knowledge-matrix HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53898 - "POST /api/admin/llm/test HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53904 - "POST /api/admin/llm/test HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53928 - "POST /api/admin/llm/active-provider HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53934 - "GET /healthz HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53937 - "GET /api/admin/llm/providers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54481 - "GET /healthz HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54504 - "GET /api/admin/llm/providers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54503 - "GET /api/novels/novel_c9703207 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54508 - "GET /api/novels/novel_c9703207/chapters HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54509 - "GET /api/novels/novel_c9703207/world-bible HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54510 - "GET /api/novels/novel_c9703207/characters HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54511 - "GET /api/novels/novel_c9703207/memory HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54512 - "GET /api/novels/novel_c9703207/knowledge-matrix HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54559 - "GET /api/novels/novel_c9703207/characters HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54560 - "GET /api/novels/novel_c9703207/knowledge-matrix HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54564 - "GET /api/novels/novel_c9703207/world-bible HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54582 - "GET /api/novels/novel_c9703207/characters HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54583 - "GET /api/novels/novel_c9703207/knowledge-matrix HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54584 - "GET /api/novels/novel_c9703207/world-bible HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54632 - "POST /api/admin/llm/test HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54717 - "GET /healthz HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54757 - "GET /api/novels/novel_c9703207/chapters HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54759 - "POST /api/chapters/novel_c9703207_chapter_004/user-prompt HTTP/1.1" 502 Bad Gateway
+INFO:     127.0.0.1:55013 - "POST /api/chapters/novel_c9703207_chapter_004/user-prompt HTTP/1.1" 502 Bad Gateway
+INFO:     127.0.0.1:55179 - "PUT /api/admin/llm/providers/default HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55180 - "GET /healthz HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55204 - "GET /api/novels/novel_c9703207/chapters HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55206 - "POST /api/chapters/novel_c9703207_chapter_004/user-prompt HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:55274 - "GET /api/chapters/novel_c9703207_chapter_004/structured-prompt HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55275 - "PATCH /api/chapters/novel_c9703207_chapter_004/structured-prompt HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55276 - "POST /api/chapters/novel_c9703207_chapter_004/structured-prompt/approve HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:55277 - "GET /api/chapters/novel_c9703207_chapter_004/draft/latest HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:55278 - "POST /api/chapters/novel_c9703207_chapter_004/draft/generate HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:55336 - "GET /api/chapters/novel_c9703207_chapter_004/draft/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55337 - "GET /api/chapters/novel_c9703207_chapter_004/audit/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55338 - "POST /api/chapters/novel_c9703207_chapter_004/draft/review HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:55487 - "GET /api/chapters/novel_c9703207_chapter_004/draft/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55488 - "GET /api/chapters/novel_c9703207_chapter_004/audit/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55489 - "POST /api/chapters/novel_c9703207_chapter_004/draft/review HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:55638 - "GET /api/chapters/novel_c9703207_chapter_004/draft/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55639 - "GET /api/chapters/novel_c9703207_chapter_004/audit/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55652 - "GET /api/novels/novel_c9703207/chapters HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55653 - "GET /api/chapters/novel_c9703207_chapter_004/draft/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55656 - "GET /api/chapters/novel_c9703207_chapter_004/audit/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55657 - "GET /api/chapters/novel_c9703207_chapter_004/agent-runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55677 - "GET /api/chapters/novel_c9703207_chapter_004/draft/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55831 - "GET /healthz HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55867 - "GET /api/novels/novel_c9703207/chapters HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55869 - "GET /api/chapters/novel_c9703207_chapter_004/draft/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55870 - "GET /api/chapters/novel_c9703207_chapter_004/draft/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55871 - "GET /api/chapters/novel_c9703207_chapter_004/audit/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55872 - "POST /api/chapters/novel_c9703207_chapter_004/draft/review HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:55873 - "POST /api/chapters/novel_c9703207_chapter_004/approve-final-text HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:56022 - "GET /api/chapters/novel_c9703207_chapter_004/canon-update-patch HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56023 - "POST /api/chapters/novel_c9703207_chapter_004/canon-update-patch/confirm HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:56024 - "GET /api/novels/novel_c9703207/chapters HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56025 - "GET /api/chapters/novel_c9703207_chapter_004/draft/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56026 - "GET /api/chapters/novel_c9703207_chapter_004/audit/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56027 - "GET /api/novels/novel_c9703207/chapters HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56028 - "POST /api/novels/novel_c9703207/chapters HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56029 - "GET /api/chapters/novel_c9703207_chapter_005/draft/latest HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:56030 - "POST /api/chapters/novel_c9703207_chapter_005/user-prompt HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:56131 - "GET /api/chapters/novel_c9703207_chapter_005/structured-prompt HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56132 - "PATCH /api/chapters/novel_c9703207_chapter_005/structured-prompt HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56133 - "POST /api/chapters/novel_c9703207_chapter_005/structured-prompt/approve HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:56134 - "GET /api/chapters/novel_c9703207_chapter_005/draft/latest HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:56135 - "POST /api/chapters/novel_c9703207_chapter_005/draft/generate HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:56427 - "GET /api/chapters/novel_c9703207_chapter_005/draft/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56428 - "GET /api/chapters/novel_c9703207_chapter_005/audit/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56429 - "POST /api/chapters/novel_c9703207_chapter_005/draft/review HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:56430 - "POST /api/chapters/novel_c9703207_chapter_005/approve-final-text HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:56484 - "GET /api/chapters/novel_c9703207_chapter_005/canon-update-patch HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56485 - "POST /api/chapters/novel_c9703207_chapter_005/canon-update-patch/confirm HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:56486 - "GET /api/novels/novel_c9703207/chapters HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56487 - "GET /api/chapters/novel_c9703207_chapter_005/draft/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56488 - "GET /api/chapters/novel_c9703207_chapter_005/audit/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56489 - "GET /api/novels/novel_c9703207/chapters HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56490 - "POST /api/novels/novel_c9703207/chapters HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56491 - "GET /api/chapters/novel_c9703207_chapter_006/draft/latest HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:56492 - "POST /api/chapters/novel_c9703207_chapter_006/user-prompt HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:56676 - "GET /api/chapters/novel_c9703207_chapter_006/structured-prompt HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56677 - "PATCH /api/chapters/novel_c9703207_chapter_006/structured-prompt HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56678 - "POST /api/chapters/novel_c9703207_chapter_006/structured-prompt/approve HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:56679 - "GET /api/chapters/novel_c9703207_chapter_006/draft/latest HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:56680 - "POST /api/chapters/novel_c9703207_chapter_006/draft/generate HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:56811 - "GET /api/chapters/novel_c9703207_chapter_006/draft/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56812 - "GET /api/chapters/novel_c9703207_chapter_006/audit/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56813 - "POST /api/chapters/novel_c9703207_chapter_006/draft/review HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:56814 - "POST /api/chapters/novel_c9703207_chapter_006/approve-final-text HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:57041 - "GET /api/chapters/novel_c9703207_chapter_006/canon-update-patch HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57042 - "POST /api/chapters/novel_c9703207_chapter_006/canon-update-patch/confirm HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:57043 - "GET /api/novels/novel_c9703207/chapters HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57044 - "GET /api/chapters/novel_c9703207_chapter_006/draft/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57045 - "GET /api/chapters/novel_c9703207_chapter_006/audit/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57076 - "GET /api/novels/novel_c9703207/chapters HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57623 - "GET /healthz HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57624 - "GET /api/novels/novel_c9703207/chapters HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57626 - "GET /api/novels/novel_c9703207 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57627 - "GET /api/novels/novel_c9703207/world-bible HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57628 - "GET /api/novels/novel_c9703207/characters HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57629 - "GET /api/novels/novel_c9703207/memory HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57630 - "GET /api/novels/novel_c9703207/knowledge-matrix HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57650 - "GET /api/chapters/novel_c9703207_chapter_004/agent-runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57789 - "GET /healthz HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57888 - "GET /api/novels/novel_c9703207/chapters HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57888 - "GET /api/chapters/novel_c9703207_chapter_001/draft/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57888 - "GET /api/chapters/novel_c9703207_chapter_002/draft/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57888 - "GET /api/chapters/novel_c9703207_chapter_003/draft/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57888 - "GET /api/chapters/novel_c9703207_chapter_004/draft/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57888 - "GET /api/chapters/novel_c9703207_chapter_005/draft/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57888 - "GET /api/chapters/novel_c9703207_chapter_006/draft/latest HTTP/1.1" 200 OK

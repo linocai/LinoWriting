@@ -169,6 +169,17 @@ import Foundation
     #expect(providerJSON.contains("api_key"))
 }
 
+@Test func apiErrorTranslatesBackendDetails() throws {
+    let llmError = APIError.httpStatus(
+        502,
+        #"{"detail":"大模型调用失败：请求超时","code":"llm_gateway_error","retryable":true}"#
+    )
+    #expect(llmError.userMessage == "大模型调用失败：请求超时 可稍后重试。")
+
+    let conflict = APIError.httpStatus(409, #"{"detail":"Draft has S0 audit issues"}"#)
+    #expect(conflict.userMessage == "当前状态不能继续：Draft has S0 audit issues")
+}
+
 @Test func novelLibraryEndpointsConstructExpectedRequests() throws {
     let list = Endpoint.listNovels()
     #expect(list.method == .get)

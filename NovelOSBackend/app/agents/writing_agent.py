@@ -29,6 +29,8 @@ class WritingAgent:
                 system=(
                     "你是长篇小说正文写作 Agent。必须遵守 Context Pack 的人物白名单、"
                     "知识边界和结构化 Prompt。不要新增命名角色，不要提前泄露真相。"
+                    "如人物处于校园或未成年人语境，只能写非露骨的情绪、关系和边界试探，"
+                    "不得描写性行为、露骨性细节或成人化凝视。"
                 ),
                 metadata={"agent": self.name, "chapter_id": agent_input.chapter_id},
             )

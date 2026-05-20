@@ -174,8 +174,15 @@ class OpenAICompatibleGateway:
             )
             response.raise_for_status()
             payload = response.json()
-        except httpx.HTTPError as exc:
-            raise LLMGatewayError(f"LLM request failed: {exc}") from exc
+        except httpx.TimeoutException as exc:
+            raise LLMGatewayError("请求超时，请稍后重试或调高 Provider timeout。") from exc
+        except httpx.HTTPStatusError as exc:
+            body_preview = exc.response.text[:300] if exc.response is not None else ""
+            raise LLMGatewayError(
+                f"模型接口返回 HTTP {exc.response.status_code}：{body_preview}"
+            ) from exc
+        except httpx.RequestError as exc:
+            raise LLMGatewayError(f"无法连接模型接口：{exc}") from exc
         except ValueError as exc:
             raise LLMGatewayError("LLM response was not valid JSON.") from exc
         finally:
@@ -214,7 +221,15 @@ def _parse_json_object(content: str) -> dict[str, Any]:
     try:
         parsed = json.loads(stripped)
     except json.JSONDecodeError as exc:
-        raise LLMGatewayError("LLM response was not a valid JSON object.") from exc
+        start = stripped.find("{")
+        end = stripped.rfind("}")
+        if start >= 0 and end > start:
+            try:
+                parsed = json.loads(stripped[start : end + 1])
+            except json.JSONDecodeError:
+                raise LLMGatewayError("LLM response was not a valid JSON object.") from exc
+        else:
+            raise LLMGatewayError("LLM response was not a valid JSON object.") from exc
     if not isinstance(parsed, dict):
         raise LLMGatewayError("LLM response JSON must be an object.")
     return parsed

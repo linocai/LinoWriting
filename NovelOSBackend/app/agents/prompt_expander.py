@@ -26,6 +26,7 @@ class PromptExpanderAgent:
                     "chapter_goal string, must_happen string[], must_not_happen string[], "
                     "allowed_named_entities [{name, activation, mention_budget}], narrative_style string, "
                     "activation_summary {active_cast, allowed_names_count, mention_budget_total, new_named_character_policy}, version number."
+                    "如果是校园或未成年人语境，must_not_happen 必须包含禁止露骨性描写、性行为和成人化凝视。"
                 ),
                 metadata={"agent": self.name, "chapter_id": agent_input.chapter_id},
             )

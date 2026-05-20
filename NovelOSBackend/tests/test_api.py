@@ -14,10 +14,19 @@ from sqlalchemy.orm import sessionmaker
 
 from app.database import Base, get_session
 from app.main import create_app
-from app.models import AgentRunModel, BootstrapImportModel, ChapterModel, DraftModel, NovelModel
+from app.models import (
+    AgentRunModel,
+    BootstrapImportModel,
+    ChapterModel,
+    DraftModel,
+    KnowledgeMatrixEntryModel,
+    MemoryFactModel,
+    NovelModel,
+    WorldBibleSectionModel,
+)
 from app.seed import seed_database
 from app.services import run_audit_pipeline
-from app.llm.gateway import LLMResult, OpenAICompatibleGateway
+from app.llm.gateway import LLMGatewayError, LLMResult, OpenAICompatibleGateway
 
 
 def json_from_request(request: httpx.Request) -> dict:
@@ -113,12 +122,26 @@ class FakeGateway:
                     }
                 ],
             },
+            "canon_extraction": {
+                "candidate_facts": ["林骁扬在晚自习后克制处理与蒋语笛的误会。"],
+                "knowledge_entries": ["读者已知道林骁扬没有越过校园边界。"],
+                "world_bible_updates": ["高三晚自习后的纪律检查会影响人物行动。"],
+                "character_updates": ["林骁扬在压力下更明确自己的边界感。"],
+            },
         }
         return LLMResult(
             content=json.dumps(payload_by_schema[schema_name], ensure_ascii=False),
             model="fake-live",
             token_usage={"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3},
         )
+
+
+class FailingGateway:
+    def complete_text(self, prompt: str, *, system=None, metadata=None) -> LLMResult:
+        raise LLMGatewayError("test provider failed")
+
+    def complete_structured(self, prompt: str, *, schema_name: str, system=None, metadata=None) -> LLMResult:
+        raise LLMGatewayError("test provider failed")
 
 
 @pytest.fixture()
@@ -406,6 +429,27 @@ def test_openai_compatible_gateway_parses_structured_response():
     assert result.token_usage["total_tokens"] == 7
 
 
+def test_openai_compatible_gateway_extracts_json_from_extra_text():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "model": "test-model",
+                "choices": [{"message": {"content": "结果如下：\n{\"ok\": true}\n完毕"}}],
+                "usage": {},
+            },
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler), base_url="https://example.test")
+    gateway = OpenAICompatibleGateway(
+        api_key="test-key",
+        base_url="https://example.test/v1",
+        model="test-model",
+        client=client,
+    )
+    assert gateway.complete_structured("hello", schema_name="dirty_json").structured == {"ok": True}
+
+
 def test_live_mode_agents_use_injected_gateway(monkeypatch):
     monkeypatch.setenv("NOVEL_OS_LLM_MODE", "live")
     from app.orchestrator import ChapterWorkflowOrchestrator
@@ -417,10 +461,12 @@ def test_live_mode_agents_use_injected_gateway(monkeypatch):
         prompt="A 去旧码头见 B。",
         context_payload={"allowed_named_entities": ["A", "B", "旧码头"]},
     )
-    assert results[0].model == "fake-live"
+    assert results[0].model == "local"
+    assert results[1].model == "local"
+    assert results[2].model == "fake-live"
     assert results[0].payload["entities"] == ["A", "B", "旧码头"]
     assert results[2].payload["chapter_id"] == "chapter_live"
-    assert gateway.calls == ["intent_parser", "context_pack_summary", "structured_prompt"]
+    assert gateway.calls == ["structured_prompt"]
 
 
 def test_live_mode_import_agent_generates_bootstrap_canon(monkeypatch):
@@ -440,6 +486,45 @@ def test_live_mode_import_agent_generates_bootstrap_canon(monkeypatch):
     assert result.payload["world_bible_sections"][0]["title"] == "开篇基调"
     assert result.payload["character_cards"][0]["name"] == "A"
     assert gateway.calls == ["bootstrap_canon"]
+
+
+def test_bootstrap_analysis_records_retryable_llm_failure(client: TestClient, monkeypatch):
+    monkeypatch.setenv("NOVEL_OS_LLM_MODE", "live")
+    monkeypatch.setattr("app.orchestrator.make_llm_gateway", lambda: FailingGateway())
+
+    created = client.post(
+        "/api/novels",
+        json={"id": "novel_failure", "title": "失败测试", "genre": "悬疑"},
+    )
+    assert created.status_code == 200
+    imported = client.post(
+        "/api/novels/novel_failure/bootstrap/import-first-three-chapters",
+        json={
+            "chapters": [
+                {"chapter_no": 1, "title": "一", "text": "第一章正文"},
+                {"chapter_no": 2, "title": "二", "text": "第二章正文"},
+                {"chapter_no": 3, "title": "三", "text": "第三章正文"},
+            ]
+        },
+    )
+    assert imported.status_code == 200
+
+    failed = client.post("/api/novels/novel_failure/bootstrap/analyze")
+    assert failed.status_code == 502
+    assert "大模型调用失败" in failed.json()["detail"]
+
+    session_factory = client.app.state.testing_session_factory
+    with session_factory() as session:
+        failure_run = session.scalar(
+            select(AgentRunModel).where(
+                AgentRunModel.novel_id == "novel_failure",
+                AgentRunModel.status == "failed",
+            )
+        )
+        assert failure_run is not None
+        assert failure_run.agent_name == "Import Agent"
+        assert failure_run.error_message
+        assert failure_run.payload["retryable"] is True
 
 
 def test_base_documents_crud_and_character_delete_is_absent(client: TestClient):
@@ -606,6 +691,69 @@ def test_chapter_workflow_five_step_mock_flow(client: TestClient):
         assert canon_merge_run is not None
 
 
+def test_live_canon_patch_uses_extraction_and_merges_base_docs(client: TestClient, monkeypatch):
+    monkeypatch.setenv("NOVEL_OS_LLM_MODE", "live")
+    monkeypatch.setattr("app.orchestrator.make_llm_gateway", lambda: FakeGateway())
+
+    created = client.post(
+        "/api/novels",
+        json={
+            "id": "novel_live_patch",
+            "title": "真实补丁测试",
+            "genre": "青春校园",
+            "current_canon_version": 2,
+            "bootstrap_status": "analyzed",
+        },
+    )
+    assert created.status_code == 200
+    chapter = client.post(
+        "/api/novels/novel_live_patch/chapters",
+        json={"chapter_no": 4, "title": "第四章", "target_word_count": 1200},
+    )
+    assert chapter.status_code == 200
+
+    session_factory = client.app.state.testing_session_factory
+    with session_factory() as session:
+        session.add(
+            DraftModel(
+                id="draft_live_patch_v1",
+                chapter_id="novel_live_patch_chapter_004",
+                version_no=1,
+                text="林骁扬在晚自习后克制处理与蒋语笛的误会，最后回到教室准备接受纪律检查。",
+                word_count=39,
+                audit_summary={"s0_count": 0, "s1_count": 0, "s2_count": 0, "issues": []},
+                source="test",
+                created_at=800000010,
+            )
+        )
+        session.commit()
+
+    assert client.post("/api/chapters/novel_live_patch_chapter_004/approve-final-text").status_code == 204
+    patch = client.get("/api/chapters/novel_live_patch_chapter_004/canon-update-patch").json()
+    assert patch["id"] == "patch_novel_live_patch_chapter_004"
+    assert patch["target_canon_version"] == 3
+    assert all("旧码头" not in item["summary"] for item in patch["items"])
+    assert {item["target"] for item in patch["items"]} >= {"Memory", "Knowledge", "WorldBible", "Character"}
+
+    assert client.post("/api/chapters/novel_live_patch_chapter_004/canon-update-patch/confirm").status_code == 204
+
+    with session_factory() as session:
+        novel = session.scalar(select(NovelModel).where(NovelModel.id == "novel_live_patch"))
+        memory = session.scalars(
+            select(MemoryFactModel).where(MemoryFactModel.novel_id == "novel_live_patch")
+        ).all()
+        knowledge = session.scalars(
+            select(KnowledgeMatrixEntryModel).where(KnowledgeMatrixEntryModel.novel_id == "novel_live_patch")
+        ).all()
+        world = session.scalars(
+            select(WorldBibleSectionModel).where(WorldBibleSectionModel.novel_id == "novel_live_patch")
+        ).all()
+        assert novel.current_canon_version == 3
+        assert any("林骁扬" in item.summary for item in memory)
+        assert any("边界" in (item.fact or "") for item in knowledge)
+        assert any("纪律检查" in item.content for item in world)
+
+
 def test_s0_audit_blocks_draft_approval(client: TestClient):
     assert client.post("/api/chapters/chapter_004/draft/generate").status_code == 204
 
@@ -656,6 +804,20 @@ def test_deterministic_safety_audit_flags_illegal_names_and_knowledge_leaks(clie
         assert report.summary["s0_count"] >= 3
         assert report.summary["illegal_named_entity_count"] == 1
         assert report.summary["knowledge_violation_count"] == 1
+
+        geometry_draft = DraftModel(
+            id="draft_geometry_v1",
+            chapter_id=chapter.id,
+            version_no=100,
+            text="这道题的辅助线从C点到D点，不涉及其他人物。",
+            word_count=22,
+            audit_summary=None,
+            source="safety_test",
+            created_at=800000003,
+        )
+        session.add(geometry_draft)
+        geometry_report = run_audit_pipeline(session, chapter, geometry_draft, timestamp_prefix="13:01")
+        assert geometry_report.summary["illegal_named_entity_count"] == 0
 
 
 def test_alembic_migration_upgrade_and_downgrade(tmp_path):

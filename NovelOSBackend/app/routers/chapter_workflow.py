@@ -121,8 +121,8 @@ def approve_final_text(chapter_id: str, session: Session = Depends(get_session))
     chapter = require_chapter(session, chapter_id)
     draft = ensure_initial_draft(session, chapter)
     require_s0_free(draft)
-    ensure_canon_patch(session, chapter)
     run_extraction_agent(session, chapter, draft)
+    ensure_canon_patch(session, chapter)
     chapter.status = "canonPatchPending"
     chapter.current_version_id = draft.id
     chapter.approved_version_id = draft.id

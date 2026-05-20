@@ -14,6 +14,8 @@ from sqlalchemy.orm import Session
 from app import config, mock_data
 from app.agents.base import AgentResult
 from app.agents.safety import highest_severity, summary_passed
+from app.errors import llm_error_detail
+from app.llm.gateway import LLMGatewayError
 from app.models import (
     AgentRunModel,
     AuditReportModel,
@@ -165,6 +167,18 @@ def latest_canon_patch(session: Session, chapter_id: str) -> CanonUpdatePatchMod
     )
 
 
+def latest_agent_run(session: Session, chapter_id: str, agent_name: str) -> AgentRunModel | None:
+    return session.scalar(
+        select(AgentRunModel)
+        .where(
+            AgentRunModel.chapter_id == chapter_id,
+            AgentRunModel.agent_name == agent_name,
+        )
+        .order_by(AgentRunModel.created_at.desc(), AgentRunModel.id.desc())
+        .limit(1)
+    )
+
+
 def latest_bootstrap_import(session: Session, novel_id: str) -> BootstrapImportModel | None:
     return session.scalar(
         select(BootstrapImportModel)
@@ -287,10 +301,22 @@ def analyze_bootstrap_import(session: Session, novel: NovelModel) -> dict:
     if import_row is None:
         raise HTTPException(status_code=409, detail="Import the first three chapters before analysis.")
 
-    result = ChapterWorkflowOrchestrator().run_bootstrap_analysis(
-        novel_id=novel.id,
-        chapters=import_row.chapters_payload,
-    )
+    try:
+        result = ChapterWorkflowOrchestrator().run_bootstrap_analysis(
+            novel_id=novel.id,
+            chapters=import_row.chapters_payload,
+        )
+    except LLMGatewayError as exc:
+        fail_agent_run(
+            session,
+            run_id=f"{import_row.id}_import_agent_failed",
+            novel_id=novel.id,
+            chapter_id=None,
+            agent_name="Import Agent",
+            run_type="bootstrap",
+            input_payload={"import_id": import_row.id, "chapter_count": len(import_row.chapters_payload)},
+            error=exc,
+        )
     import_row.analysis_payload = result.payload
     apply_bootstrap_canon_analysis(session, novel, result.payload)
     import_row.status = "analyzed"
@@ -648,6 +674,10 @@ def build_context_pack(session: Session, chapter: ChapterModel) -> dict:
         if text:
             knowledge_limits.append(text)
 
+    forbidden_named_entities = ["陌生角色", "新角色"]
+    if chapter.novel_id == mock_data.NOVEL["id"]:
+        forbidden_named_entities.insert(0, "D")
+
     return {
         "chapter_no": chapter.chapter_no,
         "canon_version": chapter.canon_version_used or 1,
@@ -658,7 +688,7 @@ def build_context_pack(session: Session, chapter: ChapterModel) -> dict:
         ],
         "new_entity_policy": "allow_minor_unnamed_only",
         "knowledge_limits": knowledge_limits,
-        "forbidden_named_entities": ["D", "陌生角色", "新角色"],
+        "forbidden_named_entities": forbidden_named_entities,
         "world_bible": [
             {"title": section.title, "content": section.content, "tags": section.tags}
             for section in world_sections
@@ -757,16 +787,60 @@ def record_agent_result(
     )
 
 
+def fail_agent_run(
+    session: Session,
+    *,
+    run_id: str,
+    novel_id: str | None,
+    chapter_id: str | None,
+    agent_name: str,
+    run_type: str,
+    input_payload: dict | None,
+    error: Exception,
+) -> None:
+    detail = llm_error_detail(error)
+    upsert_agent_run(
+        session,
+        run_id=run_id,
+        novel_id=novel_id,
+        chapter_id=chapter_id,
+        agent_name=agent_name,
+        run_type=run_type,
+        model=config.active_llm_provider().model if config.active_llm_provider() else config.openai_compatible_model(),
+        summary=detail,
+        status="failed",
+        payload={"retryable": True},
+        input_payload=input_payload or {},
+        output_payload={},
+        token_usage={},
+        error_message=detail,
+    )
+    session.commit()
+    raise HTTPException(status_code=502, detail=detail)
+
+
 def run_prompt_pipeline(session: Session, chapter: ChapterModel, prompt: str) -> dict:
     chapter.user_prompt = prompt
     context_payload = build_context_pack(session, chapter)
     orchestrator = ChapterWorkflowOrchestrator()
-    results = orchestrator.run_prompt(
-        novel_id=chapter.novel_id,
-        chapter_id=chapter.id,
-        prompt=prompt,
-        context_payload=context_payload,
-    )
+    try:
+        results = orchestrator.run_prompt(
+            novel_id=chapter.novel_id,
+            chapter_id=chapter.id,
+            prompt=prompt,
+            context_payload=context_payload,
+        )
+    except LLMGatewayError as exc:
+        fail_agent_run(
+            session,
+            run_id=f"{chapter.id}_prompt_pipeline_failed",
+            novel_id=chapter.novel_id,
+            chapter_id=chapter.id,
+            agent_name="Prompt Pipeline",
+            run_type="prompt",
+            input_payload={"prompt": prompt, "context_payload": context_payload},
+            error=exc,
+        )
     structured_prompt = dict(results[-1].payload)
     chapter.structured_prompt = structured_prompt
     chapter.status = "structuredPromptReady"
@@ -812,19 +886,154 @@ def run_prompt_pipeline(session: Session, chapter: ChapterModel, prompt: str) ->
 def ensure_canon_patch(session: Session, chapter: ChapterModel) -> dict:
     row = latest_canon_patch(session, chapter.id)
     if row is not None:
+        if _should_replace_seed_canon_patch(chapter, row.payload, row.status):
+            patch = _build_canon_patch_from_extraction(session, chapter)
+            row.id = patch["id"]
+            row.target_canon_version = int(patch["target_canon_version"])
+            row.status = "pending_user_confirmation"
+            row.payload = patch
+            row.created_at = apple_timestamp_now()
+            row.confirmed_at = None
+            chapter.canon_patch = patch
+            return patch
         chapter.canon_patch = row.payload
         return dict(row.payload)
 
     if chapter.canon_patch:
         patch = dict(chapter.canon_patch)
+        if _should_replace_seed_canon_patch(chapter, patch):
+            patch = _build_canon_patch_from_extraction(session, chapter)
         _upsert_canon_patch(session, chapter, patch)
         return patch
 
-    patch = dict(mock_data.CANON_PATCH)
-    patch["chapter_id"] = chapter.id
+    if _uses_seed_canon_patch(chapter):
+        patch = dict(mock_data.CANON_PATCH)
+        patch["chapter_id"] = chapter.id
+    else:
+        patch = _build_canon_patch_from_extraction(session, chapter)
     chapter.canon_patch = patch
     _upsert_canon_patch(session, chapter, patch)
     return patch
+
+
+def _uses_seed_canon_patch(chapter: ChapterModel) -> bool:
+    return config.llm_mode() != "live" and chapter.novel_id == mock_data.NOVEL["id"]
+
+
+def _patch_looks_like_seed_canon_patch(patch: dict) -> bool:
+    if not isinstance(patch, dict):
+        return False
+    if patch.get("id") == mock_data.CANON_PATCH["id"]:
+        return True
+    summaries = " ".join(_text(item.get("summary")) for item in _dict_items(patch.get("items")))
+    return "旧码头" in summaries and "A" in summaries and "B" in summaries and "C" in summaries
+
+
+def _should_replace_seed_canon_patch(
+    chapter: ChapterModel,
+    patch: dict,
+    status: str | None = None,
+) -> bool:
+    return (
+        chapter.novel_id != mock_data.NOVEL["id"]
+        and status != "confirmed"
+        and _patch_looks_like_seed_canon_patch(patch)
+    )
+
+
+def _build_canon_patch_from_extraction(session: Session, chapter: ChapterModel) -> dict:
+    novel = require_novel(session, chapter.novel_id)
+    extraction_run = latest_agent_run(session, chapter.id, "Extraction Agent")
+    extraction_payload = extraction_run.payload if extraction_run else {}
+    base_version = max(
+        int(novel.current_canon_version or 1),
+        int(chapter.canon_version_used or 1),
+    )
+    patch_id = f"patch_{chapter.id}"
+    items: list[dict] = []
+    items.extend(
+        _canon_patch_items(
+            patch_id=patch_id,
+            target="Memory",
+            title="新增章节事实",
+            values=extraction_payload.get("candidate_facts"),
+        )
+    )
+    items.extend(
+        _canon_patch_items(
+            patch_id=patch_id,
+            target="Knowledge",
+            title="更新 Knowledge Matrix",
+            values=extraction_payload.get("knowledge_entries"),
+        )
+    )
+    items.extend(
+        _canon_patch_items(
+            patch_id=patch_id,
+            target="WorldBible",
+            title="补充世界设定",
+            values=extraction_payload.get("world_bible_updates"),
+        )
+    )
+    items.extend(
+        _canon_patch_items(
+            patch_id=patch_id,
+            target="Character",
+            title="更新人物状态",
+            values=extraction_payload.get("character_updates"),
+        )
+    )
+    if not items:
+        draft = latest_draft(session, chapter.id)
+        fallback = _text(draft.text[:220] if draft else "")
+        if fallback:
+            items.append(
+                _canon_patch_item(
+                    patch_id=patch_id,
+                    target="Memory",
+                    title="新增章节事实",
+                    summary=fallback,
+                    index=1,
+                )
+            )
+    return {
+        "id": patch_id,
+        "chapter_id": chapter.id,
+        "target_canon_version": base_version + 1,
+        "items": items,
+    }
+
+
+def _canon_patch_items(*, patch_id: str, target: str, title: str, values: object) -> list[dict]:
+    return [
+        _canon_patch_item(
+            patch_id=patch_id,
+            target=target,
+            title=title if len(_string_list(values)) == 1 else f"{title} {index}",
+            summary=summary,
+            index=index,
+        )
+        for index, summary in enumerate(_string_list(values), start=1)
+    ]
+
+
+def _canon_patch_item(
+    *,
+    patch_id: str,
+    target: str,
+    title: str,
+    summary: str,
+    index: int,
+) -> dict:
+    item_id = _stable_doc_id(patch_id, target.lower(), index, summary)
+    return {
+        "id": item_id,
+        "target": target,
+        "title": title,
+        "summary": summary,
+        "proposed_action": "accept",
+        "editable_payload": summary,
+    }
 
 
 def _upsert_canon_patch(session: Session, chapter: ChapterModel, patch: dict) -> CanonUpdatePatchModel:
@@ -856,8 +1065,13 @@ def ensure_initial_draft(session: Session, chapter: ChapterModel) -> DraftModel:
         return draft
 
     chapter_number = f"{chapter.chapter_no:03}"
+    draft_id = (
+        f"draft_{chapter_number}_v3"
+        if chapter.novel_id == mock_data.NOVEL["id"]
+        else f"{chapter.id}_draft_v3"
+    )
     draft = DraftModel(
-        id=f"draft_{chapter_number}_v3",
+        id=draft_id,
         chapter_id=chapter.id,
         version_no=3,
         text=mock_data.DRAFT_TEXT,
@@ -876,16 +1090,31 @@ def run_writing_agent(session: Session, chapter: ChapterModel) -> DraftModel:
     context_payload = context_pack.payload if context_pack else build_context_pack(session, chapter)
     if config.llm_mode() == "live" and latest_draft(session, chapter.id) is None:
         structured_prompt = ensure_structured_prompt(session, chapter)
-        result = ChapterWorkflowOrchestrator().run_writing(
-            novel_id=chapter.novel_id,
-            chapter_id=chapter.id,
-            draft=None,
-            chapter=chapter,
-            structured_prompt=structured_prompt,
-            context_payload=context_payload,
-        )
+        try:
+            result = ChapterWorkflowOrchestrator().run_writing(
+                novel_id=chapter.novel_id,
+                chapter_id=chapter.id,
+                draft=None,
+                chapter=chapter,
+                structured_prompt=structured_prompt,
+                context_payload=context_payload,
+            )
+        except LLMGatewayError as exc:
+            fail_agent_run(
+                session,
+                run_id=f"{chapter.id}_writing_agent_failed",
+                novel_id=chapter.novel_id,
+                chapter_id=chapter.id,
+                agent_name="Writing Agent",
+                run_type="draft",
+                input_payload={
+                    "structured_prompt": structured_prompt,
+                    "context_payload": context_payload,
+                },
+                error=exc,
+            )
         draft = DraftModel(
-            id=f"draft_{chapter.chapter_no:03}_v1",
+            id=f"{chapter.id}_draft_v1",
             chapter_id=chapter.id,
             version_no=1,
             text=result.payload["text"],
@@ -918,12 +1147,24 @@ def run_writing_agent(session: Session, chapter: ChapterModel) -> DraftModel:
 
 
 def run_extraction_agent(session: Session, chapter: ChapterModel, draft: DraftModel) -> AgentRunModel:
-    result = ChapterWorkflowOrchestrator().run_extraction(
-        novel_id=chapter.novel_id,
-        chapter_id=chapter.id,
-        draft=draft,
-    )
-    return record_agent_result(
+    try:
+        result = ChapterWorkflowOrchestrator().run_extraction(
+            novel_id=chapter.novel_id,
+            chapter_id=chapter.id,
+            draft=draft,
+        )
+    except LLMGatewayError as exc:
+        fail_agent_run(
+            session,
+            run_id=f"{draft.id}_extraction_agent_failed",
+            novel_id=chapter.novel_id,
+            chapter_id=chapter.id,
+            agent_name="Extraction Agent",
+            run_type="canon",
+            input_payload={"draft_id": draft.id},
+            error=exc,
+        )
+    run = record_agent_result(
         session,
         run_id=f"{draft.id}_extraction_agent",
         novel_id=chapter.novel_id,
@@ -931,6 +1172,8 @@ def run_extraction_agent(session: Session, chapter: ChapterModel, draft: DraftMo
         result=result,
         input_payload={"draft_id": draft.id},
     )
+    session.flush()
+    return run
 
 
 def audit_summary_has_s0(draft: DraftModel) -> bool:
@@ -979,13 +1222,18 @@ def run_audit_pipeline(
     session.flush()
     context_pack = latest_context_pack(session, chapter.id)
     context_payload = context_pack.payload if context_pack else build_context_pack(session, chapter)
+    base_summary = (
+        mock_data.AUDIT_SUMMARY
+        if config.llm_mode() != "live" and chapter.novel_id == mock_data.NOVEL["id"]
+        else None
+    )
     draft.audit_summary, results = ChapterWorkflowOrchestrator().run_audit(
         novel_id=chapter.novel_id,
         chapter_id=chapter.id,
         draft_id=draft.id,
         draft_text=draft.text,
         context_payload=context_payload,
-        base_summary=draft.audit_summary or mock_data.AUDIT_SUMMARY,
+        base_summary=base_summary,
     )
     named_entity_result = dict(results[0].payload)
     knowledge_result = dict(results[1].payload)
@@ -1049,15 +1297,27 @@ def create_revision(session: Session, chapter: ChapterModel, feedback: str | Non
     next_version = current.version_no + 1
     chapter_number = f"{chapter.chapter_no:03}"
     if config.llm_mode() == "live":
-        result = ChapterWorkflowOrchestrator().run_revision(
-            novel_id=chapter.novel_id,
-            chapter_id=chapter.id,
-            current=current,
-            revision=None,
-            feedback=feedback,
-        )
+        try:
+            result = ChapterWorkflowOrchestrator().run_revision(
+                novel_id=chapter.novel_id,
+                chapter_id=chapter.id,
+                current=current,
+                revision=None,
+                feedback=feedback,
+            )
+        except LLMGatewayError as exc:
+            fail_agent_run(
+                session,
+                run_id=f"{chapter.id}_revision_agent_v{next_version}_failed",
+                novel_id=chapter.novel_id,
+                chapter_id=chapter.id,
+                agent_name="Revision Agent",
+                run_type="draft",
+                input_payload={"from_draft_id": current.id, "feedback": feedback or ""},
+                error=exc,
+            )
         revision = DraftModel(
-            id=f"draft_{chapter_number}_v{next_version}",
+            id=f"{chapter.id}_draft_v{next_version}",
             chapter_id=chapter.id,
             version_no=next_version,
             text=result.payload["text"],
@@ -1136,18 +1396,128 @@ def confirm_canon_update_patch(session: Session, chapter: ChapterModel, novel: N
         patch_row.confirmed_at = now
         patch_row.payload = patch
     for item in patch.get("items", []):
-        session.add(
-            CanonEditHistoryModel(
-                id=f"history_{item['id']}_{uuid4().hex[:8]}",
-                novel_id=novel.id,
-                chapter_id=chapter.id,
-                target=item.get("target", "Unknown"),
-                action=item.get("proposed_action", "accept"),
-                payload=item,
-                created_by="canon_merge_agent",
-                created_at=now,
-            )
-        )
+        action = _text(item.get("proposed_action"), "accept")
+        if action != "reject":
+            _apply_canon_patch_item(session, novel, chapter, patch, item)
+        history_id = _stable_doc_id(novel.id, "history", chapter.id, item.get("id"))
+        history = session.get(CanonEditHistoryModel, history_id)
+        history_values = {
+            "novel_id": novel.id,
+            "chapter_id": chapter.id,
+            "target": _text(item.get("target"), "Unknown"),
+            "action": action,
+            "payload": item,
+            "created_by": "canon_merge_agent",
+            "created_at": now,
+        }
+        if history is None:
+            session.add(CanonEditHistoryModel(id=history_id, **history_values))
+        else:
+            for key, value in history_values.items():
+                setattr(history, key, value)
     chapter.status = "completed"
     novel.current_canon_version = patch["target_canon_version"]
     return patch
+
+
+def _apply_canon_patch_item(
+    session: Session,
+    novel: NovelModel,
+    chapter: ChapterModel,
+    patch: dict,
+    item: dict,
+) -> None:
+    summary = _text(item.get("editable_payload")) or _text(item.get("summary"))
+    if not summary:
+        return
+    target = _safe_id_part(item.get("target")).lower()
+    title = _text(item.get("title"), "Canon 更新")
+    canon_version = int(patch["target_canon_version"])
+    if "memory" in target:
+        _upsert_model(
+            session,
+            MemoryFactModel,
+            {
+                "id": _stable_doc_id(novel.id, "mem", chapter.chapter_no, item.get("id"), summary),
+                "novel_id": novel.id,
+                "chapter_no": chapter.chapter_no,
+                "fact_type": "event",
+                "time_in_story": None,
+                "summary": summary,
+                "participants": [],
+                "location": None,
+                "evidence": f"第 {chapter.chapter_no} 章 Canon Patch：{title}",
+                "canon_status": "confirmed",
+                "canon_version": canon_version,
+                "metadata_json": {
+                    "source": "canon_patch",
+                    "patch_id": patch["id"],
+                    "item_id": item.get("id"),
+                },
+                "created_by": "canon_merge_agent",
+            },
+        )
+        return
+    if "knowledge" in target:
+        _upsert_model(
+            session,
+            KnowledgeMatrixEntryModel,
+            {
+                "id": _stable_doc_id(novel.id, "km", chapter.chapter_no, item.get("id"), summary),
+                "novel_id": novel.id,
+                "fact": summary,
+                "fact_title": title,
+                "truth_status": "confirmed",
+                "author_knowledge": "known",
+                "reader_knowledge": "reader_known",
+                "character_knowledge": [],
+                "visibility": {"author": "known", "reader": "reader_known"},
+                "allowed_narration": {"summary": summary},
+                "canon_version": canon_version,
+            },
+        )
+        return
+    if "world" in target or "bible" in target:
+        _upsert_model(
+            session,
+            WorldBibleSectionModel,
+            {
+                "id": _stable_doc_id(novel.id, "wb", chapter.chapter_no, item.get("id"), title),
+                "novel_id": novel.id,
+                "section_key": None,
+                "title": title,
+                "content": summary,
+                "tags": ["canon_patch", f"chapter_{chapter.chapter_no:03}"],
+                "importance": "medium",
+                "activation_policy": "tag_matched",
+                "canon_version": canon_version,
+                "updated_at": apple_timestamp_now(),
+            },
+        )
+        return
+    if "character" in target:
+        character = _match_character_for_patch(session, novel.id, title, summary)
+        if character is not None:
+            state = _plain_dict(character.current_state)
+            state["summary"] = summary
+            state["source_patch_id"] = patch["id"]
+            character.current_state = state
+            character.last_active_chapter_no = chapter.chapter_no
+            character.canon_version = canon_version
+
+
+def _match_character_for_patch(
+    session: Session,
+    novel_id: str,
+    title: str,
+    summary: str,
+) -> CharacterCardModel | None:
+    haystack = f"{title}\n{summary}"
+    characters = session.scalars(
+        select(CharacterCardModel).where(CharacterCardModel.novel_id == novel_id)
+    ).all()
+    for character in characters:
+        names = [character.name, *_string_list(character.aliases)]
+        if any(name and name in haystack for name in names):
+            return character
+    return None

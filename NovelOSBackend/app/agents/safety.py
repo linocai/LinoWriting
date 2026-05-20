@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 
@@ -35,7 +36,7 @@ def deterministic_audit_summary(
     issues: list[dict[str, Any]] = list(summary.get("issues", []))
 
     forbidden_names = context_payload.get("forbidden_named_entities") or ["D", "陌生角色", "新角色"]
-    illegal_names = [name for name in forbidden_names if name and name in draft_text]
+    illegal_names = [name for name in forbidden_names if name and _contains_forbidden_name(str(name), draft_text)]
     if illegal_names:
         issues.append(
             {
@@ -105,3 +106,15 @@ def _copy_summary(summary: dict[str, Any]) -> dict[str, Any]:
     copied = dict(summary)
     copied["issues"] = [dict(issue) for issue in copied.get("issues", [])]
     return copied
+
+
+def _contains_forbidden_name(name: str, draft_text: str) -> bool:
+    if len(name) == 1 and name.isascii() and name.isalpha():
+        pattern = re.compile(rf"(?<![A-Za-z]){re.escape(name)}(?![A-Za-z])")
+        for match in pattern.finditer(draft_text):
+            next_char = draft_text[match.end() : match.end() + 1]
+            if next_char in {"点", "项", "题"}:
+                continue
+            return True
+        return False
+    return name in draft_text

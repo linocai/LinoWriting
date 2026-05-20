@@ -118,7 +118,7 @@ class ChapterWorkflowOrchestrator:
         )
 
     def run_extraction(self, *, novel_id: str, chapter_id: str, draft: Any) -> AgentResult:
-        return ExtractionAgent().run(
+        return ExtractionAgent(self.gateway).run(
             AgentInput(novel_id=novel_id, chapter_id=chapter_id, payload={"draft": draft})
         )
 

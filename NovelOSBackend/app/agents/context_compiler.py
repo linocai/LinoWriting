@@ -15,24 +15,26 @@ class ContextCompilerAgent:
     def run(self, agent_input: AgentInput) -> AgentResult:
         context_payload = dict(agent_input.payload["context_payload"])
         if config.llm_mode() == "live":
-            result = self.gateway.complete_structured(
-                str(context_payload),
-                schema_name="context_pack_summary",
-                system=(
-                    "你是小说上下文编译器。根据输入 context pack，输出 JSON："
-                    "summary: string, risk_notes: string[], focus_entities: string[]."
-                ),
-                metadata={"agent": self.name, "chapter_id": agent_input.chapter_id},
-            )
-            context_payload["llm_summary"] = result.structured
+            prompt = agent_input.user_prompt or ""
+            active_entities = context_payload.get("active_entities") or []
+            focus_entities = [name for name in active_entities if name and name in prompt] or active_entities[:5]
+            context_payload["llm_summary"] = {
+                "summary": "本章上下文已按基础文件编译；生成时必须遵守人物白名单、知识边界和校园规则。",
+                "risk_notes": [
+                    "不新增命名角色",
+                    "不让旁白确认 Knowledge Matrix 中读者未知的信息",
+                    "校园/未成年人语境只允许非露骨的情绪、关系和边界描写",
+                ],
+                "focus_entities": focus_entities,
+            }
             return AgentResult(
                 agent_name=self.name,
                 run_type=self.run_type,
-                summary=result.structured.get("summary", "已生成本章上下文摘要。"),
+                summary="本地编译本章上下文摘要。",
                 status="pass",
                 payload=context_payload,
-                model=result.model,
-                token_usage=result.token_usage,
+                model="local",
+                token_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
             )
 
         return AgentResult(

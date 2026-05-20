@@ -23,7 +23,11 @@ class RevisionAgent:
                     f"用户修改意见：{feedback}\n\n"
                     "请输出修改后的完整正文，不要附加解释。"
                 ),
-                system="你是长篇小说修订 Agent。必须保留 canon 约束，并严格回应用户反馈。",
+                system=(
+                    "你是长篇小说修订 Agent。必须保留 canon 约束，并严格回应用户反馈。"
+                    "如人物处于校园或未成年人语境，只能写非露骨的情绪、关系和边界试探，"
+                    "不得描写性行为、露骨性细节或成人化凝视。"
+                ),
                 metadata={"agent": self.name, "chapter_id": agent_input.chapter_id},
             )
             text = result.content.strip()

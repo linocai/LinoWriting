@@ -41,6 +41,42 @@ pytest
 
 Tests use SQLite for speed and isolation; Docker Compose is the default Postgres runtime path.
 
+## Local v1.0 Runtime
+
+The local-first v1.0 target is tracked in the repo-level `v1.0上线步骤.md`.
+For local use, run the API on `http://127.0.0.1:7773` and point `LinoI.app` at that address.
+Cloud deployment, domain setup, and multi-user auth are intentionally outside the v1.0 gate.
+
+Manage the local LaunchAgent:
+
+```bash
+cd NovelOSBackend
+scripts/local_service.sh install
+scripts/local_service.sh status
+scripts/local_service.sh health
+scripts/local_service.sh restart
+```
+
+## Local Backup And Restore
+
+Create a local backup:
+
+```bash
+cd NovelOSBackend
+scripts/backup_local.sh
+```
+
+Restore is intentionally protected because it replaces the active local database/import files:
+
+```bash
+cd NovelOSBackend
+LINOI_DRY_RUN_RESTORE=1 scripts/restore_local.sh /path/to/linoi-local-YYYYmmdd-HHMMSS.tar.gz
+LINOI_CONFIRM_RESTORE=1 scripts/restore_local.sh /path/to/linoi-local-YYYYmmdd-HHMMSS.tar.gz
+```
+
+Backups include the database dump/copy and imported chapter files. They intentionally do not include `.env`,
+API keys, owner tokens, or unredacted database URLs.
+
 ## Implemented API
 
 - Novel CRUD at `/api/novels`
