@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>LinoI · 改造后逻辑链路示意图</title>
+<style>
+  :root {
+    --bg: #f6f4ef;
+    --bg-2: #efece5;
+    --ink: #1d1d1f;
+    --ink-2: #5b5b62;
+    --ink-3: #8a8a92;
+    --line: rgba(0,0,0,0.08);
+    --line-strong: rgba(0,0,0,0.14);
+    --card: #ffffff;
+    --shadow: 0 1px 2px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.06);
+
+    --blue: #0a84ff;
+    --blue-bg: rgba(10,132,255,0.10);
+    --purple: #7d56f4;
+    --purple-bg: rgba(125,86,244,0.10);
+    --green: #2bb673;
+    --green-bg: rgba(43,182,115,0.12);
+    --orange: #f59f00;
+    --orange-bg: rgba(245,159,0,0.14);
+    --red: #ff453a;
+    --red-bg: rgba(255,69,58,0.10);
+    --gray-bg: rgba(0,0,0,0.04);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
+    background:
+      radial-gradient(1200px 600px at 10% -10%, rgba(10,132,255,0.07), transparent 60%),
+      radial-gradient(1000px 500px at 100% 0%, rgba(125,86,244,0.06), transparent 60%),
+      var(--bg);
+    color: var(--ink);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    padding: 56px 48px 96px;
+  }
+
+  .wrap { max-width: 1240px; margin: 0 auto; }
+
+  .doc-head { margin-bottom: 40px; }
+  .doc-kicker {
+    font-size: 12px; letter-spacing: 0.18em; color: var(--ink-3);
+    text-transform: uppercase; margin-bottom: 10px;
+  }
+  .doc-title {
+    font-size: 38px; font-weight: 700; letter-spacing: -0.02em;
+    margin: 0 0 10px;
+  }
+  .doc-sub { color: var(--ink-2); font-size: 15px; max-width: 760px; }
+
+  section { margin-top: 56px; }
+  .sec-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 22px; }
+  .sec-num {
+    width: 28px; height: 28px; border-radius: 8px;
+    background: var(--ink); color: #fff;
+    font-size: 13px; font-weight: 600;
+    display: inline-flex; align-items: center; justify-content: center;
+    transform: translateY(2px);
+  }
+  .sec-title { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+  .sec-desc { color: var(--ink-2); font-size: 14px; margin-top: 4px; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    box-shadow: var(--shadow);
+    padding: 22px 22px;
+  }
+  .card + .card { margin-top: 18px; }
+
+  /* ---- Pipeline strip ---- */
+  .pipe {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 12px;
+  }
+  .step {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 14px 14px 16px;
+    position: relative;
+  }
+  .step .label {
+    font-size: 11px; color: var(--ink-3); letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .step .name { font-size: 15px; font-weight: 600; margin-top: 4px; }
+  .step .note { font-size: 12px; color: var(--ink-2); margin-top: 6px; line-height: 1.5; }
+  .step .agents {
+    margin-top: 10px;
+    display: flex; flex-wrap: wrap; gap: 4px;
+  }
+  .chip {
+    font-size: 11px; padding: 3px 8px; border-radius: 999px;
+    background: var(--gray-bg); color: var(--ink-2);
+    white-space: nowrap;
+  }
+  .chip.blue { background: var(--blue-bg); color: var(--blue); }
+  .chip.purple { background: var(--purple-bg); color: var(--purple); }
+  .chip.green { background: var(--green-bg); color: var(--green); }
+  .chip.orange { background: var(--orange-bg); color: var(--orange); }
+  .chip.red { background: var(--red-bg); color: var(--red); }
+
+  .pipe-arrow {
+    display: flex; justify-content: space-between; padding: 6px 12px 0;
+    color: var(--ink-3); font-size: 12px;
+  }
+
+  /* ---- Permission grid ---- */
+  .perm {
+    display: grid;
+    grid-template-columns: 220px repeat(4, 1fr);
+    gap: 0;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    overflow: hidden;
+    background: var(--card);
+  }
+  .perm > div {
+    padding: 12px 14px; border-bottom: 1px solid var(--line);
+    border-right: 1px solid var(--line);
+    font-size: 13px;
+  }
+  .perm > div:nth-child(5n) { border-right: 0; }
+  .perm > div:nth-last-child(-n+5) { border-bottom: 0; }
+  .perm .ph { background: var(--bg-2); font-size: 12px; color: var(--ink-2); font-weight: 600; }
+  .perm .role { font-weight: 600; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  .dot.r { background: var(--blue); }
+  .dot.w { background: var(--green); }
+  .dot.rw { background: var(--purple); }
+  .dot.none { background: var(--ink-3); opacity: 0.3; }
+  .perm small { color: var(--ink-3); margin-left: 6px; font-size: 11px; }
+
+  .legend {
+    display: flex; gap: 18px; font-size: 12px; color: var(--ink-2);
+    margin-top: 10px;
+  }
+
+  /* ---- Detail flow (chapter generation) ---- */
+  .flow {
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .frow {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 14px;
+    align-items: stretch;
+  }
+  .fphase {
+    background: var(--bg-2);
+    border-radius: 12px;
+    padding: 12px;
+    font-size: 12px; color: var(--ink-2); font-weight: 600;
+    display: flex; flex-direction: column; justify-content: center;
+  }
+  .fphase b { color: var(--ink); font-size: 14px; display: block; }
+  .fbody {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 12px 14px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .frow.user .fphase { background: rgba(10,132,255,0.08); color: var(--blue); }
+  .frow.agent .fphase { background: rgba(125,86,244,0.08); color: var(--purple); }
+  .frow.audit .fphase { background: rgba(245,159,0,0.10); color: var(--orange); }
+  .frow.canon .fphase { background: rgba(43,182,115,0.10); color: var(--green); }
+
+  .fline {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 13px;
+  }
+  .fline .arrow { color: var(--ink-3); }
+  .fline code {
+    font-family: "SF Mono", Menlo, monospace;
+    background: var(--gray-bg);
+    border-radius: 6px; padding: 1px 6px; font-size: 12px;
+  }
+
+  /* ---- Error matrix ---- */
+  .errgrid {
+    display: grid;
+    grid-template-columns: 200px 1fr 1fr;
+    gap: 0;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    overflow: hidden;
+    background: var(--card);
+  }
+  .errgrid > div {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--line);
+    border-right: 1px solid var(--line);
+    font-size: 13px;
+  }
+  .errgrid > div:nth-child(3n) { border-right: 0; }
+  .errgrid > div:nth-last-child(-n+3) { border-bottom: 0; }
+  .errgrid .ph { background: var(--bg-2); font-weight: 600; font-size: 12px; color: var(--ink-2); }
+
+  /* ---- Before / After ---- */
+  .ba {
+    display: grid;
+    grid-template-columns: 200px 1fr 1fr;
+    gap: 0;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    overflow: hidden;
+    background: var(--card);
+  }
+  .ba > div {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--line);
+    border-right: 1px solid var(--line);
+    font-size: 13px;
+  }
+  .ba > div:nth-child(3n) { border-right: 0; }
+  .ba > div:nth-last-child(-n+3) { border-bottom: 0; }
+  .ba .ph { background: var(--bg-2); font-weight: 600; font-size: 12px; color: var(--ink-2); }
+  .ba .bad { color: var(--red); }
+  .ba .good { color: var(--green); }
+
+  /* ---- Bootstrap path ---- */
+  .boot {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+  }
+  .bcell {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 14px;
+  }
+  .bcell .h {
+    font-size: 11px; color: var(--ink-3); letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .bcell h4 { margin: 4px 0 6px; font-size: 15px; }
+  .bcell p { margin: 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.55; }
+  .bcell .tag { display: inline-block; margin-top: 8px; }
+
+  /* Footer */
+  .foot {
+    margin-top: 64px;
+    color: var(--ink-3); font-size: 12px;
+    border-top: 1px solid var(--line);
+    padding-top: 18px;
+  }
+
+  .lede { color: var(--ink-2); font-size: 14px; max-width: 880px; }
+
+  /* small helpers */
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 999px;
+    font-size: 12px; background: var(--gray-bg); color: var(--ink-2);
+  }
+  .pill.blue { background: var(--blue-bg); color: var(--blue); }
+  .pill.green { background: var(--green-bg); color: var(--green); }
+  .pill.orange { background: var(--orange-bg); color: var(--orange); }
+  .pill.purple { background: var(--purple-bg); color: var(--purple); }
+  .pill.red { background: var(--red-bg); color: var(--red); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ============ HEAD ============ -->
+  <div class="doc-head">
+    <div class="doc-kicker">LinoI · v1.0 改造后逻辑链路</div>
+    <h1 class="doc-title">数据怎么流，Agent 怎么跑，错了怎么救</h1>
+    <p class="doc-sub">一张图理解：用户做哪 5 件事，后台跑哪 9 个 Agent，Canon 哪些能读哪些能写，出错时往哪退。仅作为理解辅助，工程细节请看 <code>v1_final_plan.md</code>。</p>
+  </div>
+
+  <!-- ============ §1 五步主流程 ============ -->
+  <section>
+    <div class="sec-head">
+      <div class="sec-num">1</div>
+      <div>
+        <h2 class="sec-title">五步主流程：用户做 5 件事，剩下都让 Agent 跑</h2>
+        <div class="sec-desc">每一格里上面是用户动作，下面是这一步触发的 Agent。整张图从左往右走。</div>
+      </div>
+    </div>
+
+    <div class="pipe">
+      <div class="step">
+        <div class="label">Step 1</div>
+        <div class="name">写本章方向</div>
+        <div class="note">用户用大白话写 100–500 字，说本章要发生什么。</div>
+        <div class="agents">
+          <span class="chip purple">Intent Parser</span>
+          <span class="chip purple">Context Compiler</span>
+          <span class="chip purple">Prompt Expander</span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="label">Step 2</div>
+        <div class="name">审 Prompt</div>
+        <div class="note">看 Agent 整理后的结构化 Prompt，确认进入正文阶段。</div>
+        <div class="agents">
+          <span class="chip">用户审核</span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="label">Step 3</div>
+        <div class="name">审正文 / 修</div>
+        <div class="note">边写边看 SSE 流式生成；要改就口语化反馈，触发 Revision。</div>
+        <div class="agents">
+          <span class="chip purple">Writing Agent</span>
+          <span class="chip orange">Named Entity Audit</span>
+          <span class="chip orange">Knowledge Audit</span>
+          <span class="chip orange">Continuity Audit</span>
+          <span class="chip purple">Revision Agent</span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="label">Step 4</div>
+        <div class="name">批准正文</div>
+        <div class="note">所有 S0 已清空时才允许批准。批准后触发提取。</div>
+        <div class="agents">
+          <span class="chip purple">Extraction Agent</span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="label">Step 5</div>
+        <div class="name">确认 Canon 更新</div>
+        <div class="note">看 patch diff，按目标颜色挑：Memory / Character / WB / KM。</div>
+        <div class="agents">
+          <span class="chip purple">Canon Merge Agent</span>
+          <span class="chip green">写 Canon + canon_edit_history</span>
+        </div>
+      </div>
+    </div>
+    <div class="pipe-arrow">
+      <span>→ 用户填一段方向</span>
+      <span>→ 看一眼</span>
+      <span>→ 看正文</span>
+      <span>→ 拍板</span>
+      <span>→ 落 Canon</span>
+    </div>
+  </section>
+
+  <!-- ============ §2 Canon 权限 ============ -->
+  <section>
+    <div class="sec-head">
+      <div class="sec-num">2</div>
+      <div>
+        <h2 class="sec-title">Canon 权限：Writing Agent 看不到全部 Canon</h2>
+        <div class="sec-desc">最关键的一条：Writing Agent 只看 Context Pack（本章相关的子集），不能直接读 Canon 全库。这是"防穿帮"的根。</div>
+      </div>
+    </div>
+
+    <div class="perm">
+      <div class="ph">Agent / 角色</div>
+      <div class="ph">World Bible</div>
+      <div class="ph">Character Cards</div>
+      <div class="ph">Knowledge Matrix</div>
+      <div class="ph">Memory Facts</div>
+
+      <div class="role">Context Compiler</div>
+      <div><span class="dot r"></span>读（按 tag 激活）</div>
+      <div><span class="dot r"></span>读（按出场名单）</div>
+      <div><span class="dot r"></span>读（按可见性）</div>
+      <div><span class="dot r"></span>读（按章节相关性）</div>
+
+      <div class="role">Writing Agent <small>核心受限对象</small></div>
+      <div><span class="dot r"></span>仅 Context Pack 内</div>
+      <div><span class="dot r"></span>仅 Context Pack 内</div>
+      <div><span class="dot r"></span>仅 Context Pack 内</div>
+      <div><span class="dot r"></span>仅 Context Pack 内</div>
+
+      <div class="role">3 个 Auditor</div>
+      <div><span class="dot r"></span>读（验事实）</div>
+      <div><span class="dot r"></span>读（验白名单）</div>
+      <div><span class="dot r"></span>读（验显摆/泄露）</div>
+      <div><span class="dot r"></span>读</div>
+
+      <div class="role">Extraction Agent</div>
+      <div><span class="dot none"></span>—</div>
+      <div><span class="dot none"></span>—</div>
+      <div><span class="dot none"></span>—</div>
+      <div><span class="dot none"></span>—</div>
+
+      <div class="role">Canon Merge Agent</div>
+      <div><span class="dot rw"></span>读 + 提议写</div>
+      <div><span class="dot rw"></span>读 + 提议写</div>
+      <div><span class="dot rw"></span>读 + 提议写</div>
+      <div><span class="dot rw"></span>读 + 提议写</div>
+
+      <div class="role">用户（手动编辑面板）</div>
+      <div><span class="dot rw"></span>读写</div>
+      <div><span class="dot rw"></span>读写</div>
+      <div><span class="dot rw"></span>读写</div>
+      <div><span class="dot rw"></span>读写</div>
+    </div>
+
+    <div class="legend">
+      <span><span class="dot r"></span>只读</span>
+      <span><span class="dot w"></span>只写</span>
+      <span><span class="dot rw"></span>读写（含 canon_edit_history）</span>
+      <span><span class="dot none"></span>不接触</span>
+    </div>
+
+    <div class="card" style="margin-top:18px;">
+      <strong style="font-size:14px;">为什么 Writing Agent 看不到全部 Canon？</strong>
+      <p class="lede" style="margin-top:6px;">长篇小说里"什么人知道什么"是核心戏剧张力。如果 Writing Agent 把 Canon 全部塞进 prompt，模型会自然把"作者视角的全部真相"写进角色对话或心声，造成穿帮。所以 Context Compiler 先按本章场景挑出可见子集，把"角色 A 还不知道 X"这件事钉死，Writing Agent 写的时候就没机会泄露。</p>
+    </div>
+  </section>
+
+  <!-- ============ §3 Bootstrap ============ -->
+  <section>
+    <div class="sec-head">
+      <div class="sec-num">3</div>
+      <div>
+        <h2 class="sec-title">Bootstrap：导入前三章 → 自动生成初始 Canon</h2>
+        <div class="sec-desc">一本书的起点。用户给 3 段原文，系统按模板填出 4 类基础文件。这一步只跑一次。</div>
+      </div>
+    </div>
+
+    <div class="boot">
+      <div class="bcell">
+        <div class="h">输入</div>
+        <h4>前三章原文</h4>
+        <p>用户从已有手稿或开头试写中粘 3 段 markdown，每段独立保存到 <code>imports/</code>。</p>
+        <span class="pill blue tag">POST /bootstrap/import</span>
+      </div>
+      <div class="bcell">
+        <div class="h">分析</div>
+        <h4>Import Agent</h4>
+        <p>调 LLM 按"角色卡 6 个模板槽 / WB 主题分类 / KM 5 种状态 / Memory 时间线"格式抽信息。强 Pydantic schema 校验。</p>
+        <span class="pill purple tag">9 大 Agent 之一</span>
+      </div>
+      <div class="bcell">
+        <div class="h">落库</div>
+        <h4>初始 Canon v0</h4>
+        <p>四张表一起写：World Bible / Character Cards / Knowledge Matrix / Memory Facts。每条都带 <code>created_by="import_agent"</code>。</p>
+        <span class="pill green tag">幂等可重跑</span>
+      </div>
+      <div class="bcell">
+        <div class="h">用户检查</div>
+        <h4>手动补齐 / 修正</h4>
+        <p>面板里直接改 6 个角色卡模板槽 / KM 可见性 / WB 条目。改完才算正式起点。</p>
+        <span class="pill orange tag">每次改写 canon_edit_history</span>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <strong style="font-size:14px;">为什么需要"模板"？</strong>
+      <p class="lede" style="margin-top:6px;">v1.0 之前 LLM 自己总结的 Character / KM / Memory 太散：长短不一、字段名乱跳、有时候把"状态"写到"性格"里。改造后：角色卡固定 6 个槽（基本信息 / 稳定人格 / 当前状态 / 说话方式 / 关系 / 知道什么），LLM 必须按槽填，schema 不对就重试，重试两次都不行才报错给用户。看起来"约束多"，其实是让 LLM 干"它擅长的填空"，不让它干"它不擅长的开放写作"。</p>
+    </div>
+  </section>
+
+  <!-- ============ §4 章节生成深图 ============ -->
+  <section>
+    <div class="sec-head">
+      <div class="sec-num">4</div>
+      <div>
+        <h2 class="sec-title">章节生成详细链路：从一句方向到 Canon 落库</h2>
+        <div class="sec-desc">这是真正每章都要跑一遍的链路。颜色 = 这一段谁在干活。</div>
+      </div>
+    </div>
+
+    <div class="flow">
+
+      <div class="frow user">
+        <div class="fphase"><b>用户 · Step 1</b>填入本章方向</div>
+        <div class="fbody">
+          <div class="fline"><code>prompt: string</code><span class="arrow">→</span> POST <code>/chapters/{id}/prompt</code></div>
+          <div class="fline" style="color:var(--ink-2);font-size:12px;">没有任何 Canon 写入，只暂存到 chapter.draft_prompt。</div>
+        </div>
+      </div>
+
+      <div class="frow agent">
+        <div class="fphase"><b>Agent · 后台 1</b>整理用户意图</div>
+        <div class="fbody">
+          <div class="fline"><span class="chip purple">Intent Parser</span><span class="arrow">→</span> 显式实体 / 情绪基调 / 是否允许新人物</div>
+          <div class="fline"><span class="chip purple">Context Compiler</span><span class="arrow">→</span> 从 Canon 抽子集，构造 <code>allowed_named_entities</code></div>
+          <div class="fline"><span class="chip purple">Prompt Expander</span><span class="arrow">→</span> 输出结构化 Prompt（含本章硬约束）</div>
+        </div>
+      </div>
+
+      <div class="frow user">
+        <div class="fphase"><b>用户 · Step 2</b>审 Prompt</div>
+        <div class="fbody">
+          <div class="fline">看结构化 Prompt + 安全边界摘要<span class="arrow">→</span> 点"确认"</div>
+          <div class="fline" style="color:var(--ink-2);font-size:12px;">允许返回 Step 1 改方向；批准则进入 Writing。</div>
+        </div>
+      </div>
+
+      <div class="frow agent">
+        <div class="fphase"><b>Agent · 后台 2</b>SSE 流式写正文</div>
+        <div class="fbody">
+          <div class="fline"><span class="chip purple">Writing Agent</span><span class="arrow">→</span> SSE 边写边推到前端</div>
+          <div class="fline" style="color:var(--ink-2);font-size:12px;">前端可中断；中断不消耗 token 之后的部分。</div>
+        </div>
+      </div>
+
+      <div class="frow audit">
+        <div class="fphase"><b>Audit · 并发 3</b>审正文</div>
+        <div class="fbody">
+          <div class="fline"><span class="chip orange">Named Entity</span> 正文里的专名是否都在白名单</div>
+          <div class="fline"><span class="chip orange">Knowledge</span> 角色是否泄露了他不该知道的事</div>
+          <div class="fline"><span class="chip orange">Continuity</span> 是否改写已落地事实 / 时间线穿越</div>
+          <div class="fline" style="color:var(--ink-2);font-size:12px;">三个并行跑，结果合并成 audit_report，含 highest_severity。</div>
+        </div>
+      </div>
+
+      <div class="frow agent">
+        <div class="fphase"><b>Agent · 后台 3</b>S0 触发自动 Revision</div>
+        <div class="fbody">
+          <div class="fline">audit 有 S0 ?<span class="arrow">→</span> 是：<span class="chip purple">Revision Agent</span> 自动重写（最多 2 次）</div>
+          <div class="fline">2 次后仍有 S0 ?<span class="arrow">→</span> 是：阻拦批准，提示用户人工介入</div>
+          <div class="fline" style="color:var(--ink-2);font-size:12px;">用户也可以主动写 feedback 触发 Revision，与 S0 自动 Revision 共用一条链路。</div>
+        </div>
+      </div>
+
+      <div class="frow user">
+        <div class="fphase"><b>用户 · Step 3 / 4</b>审正文 → 批准</div>
+        <div class="fbody">
+          <div class="fline">看正文 + audit_report<span class="arrow">→</span> 提反馈 / 直接批准</div>
+          <div class="fline" style="color:var(--ink-2);font-size:12px;">仅当 S0 = 0 时，"批准正文"按钮才可点。</div>
+        </div>
+      </div>
+
+      <div class="frow agent">
+        <div class="fphase"><b>Agent · 后台 4</b>从正文提取候选事实</div>
+        <div class="fbody">
+          <div class="fline"><span class="chip purple">Extraction Agent</span><span class="arrow">→</span> 按四个目标分类候选 patch</div>
+          <div class="fline"><span class="chip purple">Canon Merge Agent</span><span class="arrow">→</span> 与现 Canon 比对，标 conflict / new / update</div>
+        </div>
+      </div>
+
+      <div class="frow user">
+        <div class="fphase"><b>用户 · Step 5</b>确认 Canon 更新</div>
+        <div class="fbody">
+          <div class="fline">看 patch 列表，按 target badge 分别确认<span class="arrow">→</span> 提交</div>
+        </div>
+      </div>
+
+      <div class="frow canon">
+        <div class="fphase"><b>Canon · 落库</b>写四张基础表</div>
+        <div class="fbody">
+          <div class="fline">World Bible / Characters / KM / Memory 四张表同事务写入</div>
+          <div class="fline">每条都新增一行 <code>canon_edit_history</code>，source = <code>canon_merge_agent</code></div>
+          <div class="fline">本章 status → <code>finalized</code>，<code>current_canon_version</code> +1</div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ============ §5 错误 / 重试 ============ -->
+  <section>
+    <div class="sec-head">
+      <div class="sec-num">5</div>
+      <div>
+        <h2 class="sec-title">出错怎么救：每种失败都要有"下一步"</h2>
+        <div class="sec-desc">v1.0 之前所有错误都崩成 502 空白。改造后每种错对应一个明确动作。</div>
+      </div>
+    </div>
+
+    <div class="errgrid">
+      <div class="ph">触发场景</div>
+      <div class="ph">系统行为</div>
+      <div class="ph">用户看到 / 能做</div>
+
+      <div>LLM 超时 / 5xx</div>
+      <div>LLM Gateway 自动重试 2 次（指数退避）</div>
+      <div>不打扰用户；2 次后报 "上游不稳定"，按钮变"重试"</div>
+
+      <div>LLM 429 限流</div>
+      <div>退避 + 切备用模型（如配置了）</div>
+      <div>提示 "切换到备用模型 X 继续"</div>
+
+      <div>LLM 401 / API key 失效</div>
+      <div>不重试，直接报</div>
+      <div>红色横幅：去 Settings 校 key，给跳转按钮</div>
+
+      <div>JSON 解析失败 / schema 不符</div>
+      <div>请求 LLM 重出（带"上次错在哪"提示），最多 2 次</div>
+      <div>2 次仍失败：展原始输出 + "保留为草稿"</div>
+
+      <div>Audit S0 violation</div>
+      <div>自动 Revision 2 次</div>
+      <div>仍未清：阻拦"批准正文"，列具体违规位置</div>
+
+      <div>Canon merge conflict</div>
+      <div>不自动落库，挂 pending_user_confirmation</div>
+      <div>逐条 patch 让用户选 "接受 / 跳过 / 改"</div>
+
+      <div>本地后端宕</div>
+      <div>App 健康检查 5s 一次</div>
+      <div>顶部黄条：本地服务未运行，给"启动服务"按钮</div>
+
+      <div>本地 DB 写失败</div>
+      <div>事务回滚 + 错误入 agent_runs.error_message</div>
+      <div>提示 "本章未保存，建议立即备份" + 跳备份脚本</div>
+    </div>
+  </section>
+
+  <!-- ============ §6 改造前后 ============ -->
+  <section>
+    <div class="sec-head">
+      <div class="sec-num">6</div>
+      <div>
+        <h2 class="sec-title">改造前后对照：12 个关键差别</h2>
+        <div class="sec-desc">左边是当前实际状态（Phase A · Mock），右边是 v1.0 落地后状态。</div>
+      </div>
+    </div>
+
+    <div class="ba">
+      <div class="ph">维度</div>
+      <div class="ph">改造前</div>
+      <div class="ph">改造后</div>
+
+      <div>LLM 调用</div>
+      <div class="bad">无（全 mock 字符串）</div>
+      <div class="good">真接，统一过 LLM Gateway</div>
+
+      <div>结构化输出</div>
+      <div class="bad">无 schema 校验</div>
+      <div class="good">Pydantic 强 schema，失败重试 2 次</div>
+
+      <div>Audit 校验</div>
+      <div class="bad">永远 passed=true</div>
+      <div class="good">正文 vs 白名单真比对，输出 highest_severity</div>
+
+      <div>S0 拦截路径</div>
+      <div class="bad">未联调，前端有 inject 后门</div>
+      <div class="good">真 S0 → 自动 Revision → 阻拦批准</div>
+
+      <div>章节正文体验</div>
+      <div class="bad">点了等 30s 才出整段</div>
+      <div class="good">SSE 流式，边写边看</div>
+
+      <div>错误反馈</div>
+      <div class="bad">全部塌成 502 / 空白</div>
+      <div class="good">分类显示原因 + 下一步按钮</div>
+
+      <div>Knowledge Matrix 数据结构</div>
+      <div class="bad">visibility 是 list[CharacterKnowledge]</div>
+      <div class="good">visibility 是 dict[char_id, state]</div>
+
+      <div>角色卡字段</div>
+      <div class="bad">currentState / dialogueStyle 是 Text</div>
+      <div class="good">JSONB 6 个模板槽，前端按槽渲染</div>
+
+      <div>Bootstrap 导入</div>
+      <div class="bad">不存在，seed 直接灌完成态</div>
+      <div class="good">POST /bootstrap/import + Import Agent</div>
+
+      <div>Canon 编辑追踪</div>
+      <div class="bad">无 canon_edit_history</div>
+      <div class="good">每次改都记 source / before / after</div>
+
+      <div>右侧 Inspector</div>
+      <div class="bad">只有 1 个 section，信息密度不足</div>
+      <div class="good">5 个 section，含后台运行状态 + Audit 预览</div>
+
+      <div>本地数据安全</div>
+      <div class="bad">无备份脚本</div>
+      <div class="good">backup_local.sh + restore_local.sh</div>
+    </div>
+  </section>
+
+  <!-- ============ §7 一句话总结 ============ -->
+  <section>
+    <div class="sec-head">
+      <div class="sec-num">7</div>
+      <div>
+        <h2 class="sec-title">一句话总结</h2>
+        <div class="sec-desc">如果只能记住一句话，就记这句。</div>
+      </div>
+    </div>
+
+    <div class="card" style="padding:28px;">
+      <div style="font-size:18px; line-height:1.7; color:var(--ink);">
+        v1.0 的本质，是把"<span style="color:var(--red);">一条全是 mock 的样品产线</span>"换成"<span style="color:var(--green);">一条用户只做 5 件事、9 个 Agent 各司其职、Writing Agent 看不到全部 Canon、每步都能失败也能救回来的真正产线</span>"——并且只在用户本机跑。
+      </div>
+    </div>
+  </section>
+
+  <div class="foot">
+    LinoI · 改造后逻辑链路示意图 · 2026-05-20 · 配合 <code>v1_final_plan.md</code> 食用
+  </div>
+
+</div>
+</body>
+</html>
