@@ -1,8 +1,19 @@
 from __future__ import annotations
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from app import config
 from app.agents.base import AgentInput, AgentResult
 from app.llm.gateway import LLMGateway, MockLLMGateway
+
+
+class CanonExtractionSchema(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    candidate_facts: list[str] = Field(default_factory=list)
+    knowledge_entries: list[str] = Field(default_factory=list)
+    world_bible_updates: list[str] = Field(default_factory=list)
+    character_updates: list[str] = Field(default_factory=list)
 
 
 class ExtractionAgent:
@@ -18,6 +29,7 @@ class ExtractionAgent:
             result = self.gateway.complete_structured(
                 draft.text,
                 schema_name="canon_extraction",
+                schema=CanonExtractionSchema,
                 system=(
                     "你是长篇小说 Canon 抽取 Agent。根据已批准正文抽取可写入基础文件的变化。"
                     "只返回 JSON object，字段包含 candidate_facts string[]、knowledge_entries string[]、"

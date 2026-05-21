@@ -1,3 +1,4 @@
+import AppKit
 import NovelOSMacCore
 import SwiftUI
 
@@ -24,6 +25,7 @@ struct WritingSettingsView: View {
                     HStack(alignment: .top, spacing: 16) {
                         VStack(alignment: .leading, spacing: 16) {
                             connectionCard
+                            localDataCard
                             writingPolicyCard
                         }
                         .frame(minWidth: 340, idealWidth: 420, maxWidth: 460)
@@ -35,6 +37,7 @@ struct WritingSettingsView: View {
                     VStack(alignment: .leading, spacing: 16) {
                         connectionCard
                         llmCard
+                        localDataCard
                         writingPolicyCard
                     }
                 }
@@ -45,6 +48,8 @@ struct WritingSettingsView: View {
             }
             .padding(AppTheme.pagePadding)
         }
+        .scrollIndicators(.visible)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AppBackgroundView())
         .task {
             if settings.providers.isEmpty {
@@ -206,11 +211,106 @@ struct WritingSettingsView: View {
         }
     }
 
+    private var localDataCard: some View {
+        CardView {
+            CardHeader(title: "本地数据位置", subtitle: "恢复会替换本地数据库；App 内只提供备份和 dry-run 命令。")
+            CardBody {
+                ContentBlock("路径", tone: .blue) {
+                    MetricRowView(title: "Backend", value: settings.backendDirectoryPath, tone: .neutral)
+                    MetricRowView(title: "Backups", value: settings.backupDirectoryPath, tone: .neutral)
+                    if let lastBackupPath = settings.lastBackupPath {
+                        MetricRowView(title: "最近备份", value: lastBackupPath, tone: .green)
+                    }
+                }
+
+                ContentBlock("命令", tone: .orange) {
+                    commandLine(settings.backupCommand)
+                    commandLine(settings.restoreDryRunCommand)
+                }
+
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 10) {
+                        Button {
+                            Task { await settings.runLocalBackup() }
+                        } label: {
+                            Label(settings.isBackupRunning ? "备份中" : "一键备份", systemImage: "externaldrive.badge.plus")
+                        }
+                        .buttonStyle(BlueButtonStyle())
+                        .disabled(settings.isBackupRunning)
+
+                        Button {
+                            openFinder(path: settings.backupDirectoryPath)
+                        } label: {
+                            Label("打开备份目录", systemImage: "folder")
+                        }
+                        .buttonStyle(GhostButtonStyle())
+
+                        Button {
+                            copyToPasteboard(settings.restoreDryRunCommand)
+                            settings.statusMessage = "已复制恢复 dry-run 命令。"
+                        } label: {
+                            Label("复制 dry-run", systemImage: "doc.on.doc")
+                        }
+                        .buttonStyle(GhostButtonStyle())
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Button("一键备份") {
+                            Task { await settings.runLocalBackup() }
+                        }
+                        .buttonStyle(BlueButtonStyle())
+                        .disabled(settings.isBackupRunning)
+                        Button("打开备份目录") {
+                            openFinder(path: settings.backupDirectoryPath)
+                        }
+                        .buttonStyle(GhostButtonStyle())
+                        Button("复制恢复 dry-run") {
+                            copyToPasteboard(settings.restoreDryRunCommand)
+                            settings.statusMessage = "已复制恢复 dry-run 命令。"
+                        }
+                        .buttonStyle(GhostButtonStyle())
+                    }
+                }
+            }
+        }
+    }
+
+    private func commandLine(_ text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(text)
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(AppTheme.text)
+                .textSelection(.enabled)
+                .lineLimit(2)
+            Spacer(minLength: 8)
+            Button {
+                copyToPasteboard(text)
+                settings.statusMessage = "命令已复制。"
+            } label: {
+                Image(systemName: "doc.on.doc")
+            }
+            .buttonStyle(GhostButtonStyle())
+        }
+        .padding(10)
+        .background(AppTheme.editor, in: RoundedRectangle(cornerRadius: AppTheme.radiusSM, style: .continuous))
+    }
+
     private func binding(_ keyPath: ReferenceWritableKeyPath<ApplicationSettingsStore, String>) -> Binding<String> {
         Binding(
             get: { settings[keyPath: keyPath] },
             set: { settings[keyPath: keyPath] = $0 }
         )
+    }
+
+    private func copyToPasteboard(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    private func openFinder(path: String) {
+        let url = URL(fileURLWithPath: path)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 }
 

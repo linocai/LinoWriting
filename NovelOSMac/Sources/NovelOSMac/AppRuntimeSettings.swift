@@ -94,6 +94,8 @@ final class ApplicationSettingsStore {
     var providerTimeout: String = "60"
     var providerAPIKey: String = ""
     var isLoading: Bool = false
+    var isBackupRunning: Bool = false
+    var lastBackupPath: String?
     var statusMessage: String?
     var error: APIError?
 
@@ -216,6 +218,44 @@ final class ApplicationSettingsStore {
         }
     }
 
+    var backendDirectoryPath: String {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Lino/LinoWriting/NovelOSBackend")
+            .path
+    }
+
+    var backupDirectoryPath: String {
+        "\(backendDirectoryPath)/backups"
+    }
+
+    var backupCommand: String {
+        "\(backendDirectoryPath)/scripts/backup_local.sh"
+    }
+
+    var restoreDryRunCommand: String {
+        "LINOI_DRY_RUN_RESTORE=1 \(backendDirectoryPath)/scripts/restore_local.sh <backup.tar.gz>"
+    }
+
+    func runLocalBackup() async {
+        isBackupRunning = true
+        error = nil
+        defer { isBackupRunning = false }
+        do {
+            let command = shellQuote(backupCommand)
+            let output = try await Task.detached {
+                try runShellCommand(command)
+            }.value
+            let backupPath = output
+                .split(whereSeparator: \.isNewline)
+                .map(String.init)
+                .last
+            lastBackupPath = backupPath
+            statusMessage = backupPath.map { "本地备份已完成：\($0)" } ?? "本地备份已完成。"
+        } catch {
+            statusMessage = "备份失败：\(error.localizedDescription)"
+        }
+    }
+
     private func apply(_ response: LLMProvidersResponse) {
         providers = response.providers
         activeProviderID = response.activeProviderId
@@ -230,5 +270,36 @@ final class ApplicationSettingsStore {
         let apiError = error as? APIError ?? APIError.transport(String(describing: error))
         self.error = apiError
         statusMessage = apiError.userMessage
+    }
+}
+
+private func runShellCommand(_ command: String) throws -> String {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+    process.arguments = ["-lc", command]
+    let outputPipe = Pipe()
+    let errorPipe = Pipe()
+    process.standardOutput = outputPipe
+    process.standardError = errorPipe
+    try process.run()
+    process.waitUntilExit()
+
+    let output = String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+    let errorOutput = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+    guard process.terminationStatus == 0 else {
+        throw ShellCommandError(message: errorOutput.isEmpty ? output : errorOutput)
+    }
+    return output
+}
+
+private func shellQuote(_ value: String) -> String {
+    "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+}
+
+private struct ShellCommandError: LocalizedError {
+    var message: String
+
+    var errorDescription: String? {
+        message.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

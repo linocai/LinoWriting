@@ -142,6 +142,7 @@ class AgentRun(APIModel):
     error_message: Optional[str] = None
     started_at: Optional[float] = None
     completed_at: Optional[datetime] = None
+    latency_ms: Optional[float] = None
     created_at: float
 
 
@@ -290,10 +291,13 @@ class KnowledgeMatrixEntry(APIModel):
     truth_status: str
     author_knowledge: str
     reader_knowledge: str
-    character_knowledge: list[CharacterKnowledge]
-    visibility: Optional[dict] = None
+    visibility: dict[str, str] = Field(default_factory=dict)
     allowed_narration: Union[dict, str]
     canon_version: int
+
+
+class KnowledgeMatrixEntryUpsert(KnowledgeMatrixEntry):
+    character_knowledge: list[CharacterKnowledge] = Field(default_factory=list)
 
 
 class MemoryFact(APIModel):

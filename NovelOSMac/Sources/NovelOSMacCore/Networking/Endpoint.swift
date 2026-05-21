@@ -177,8 +177,16 @@ public extension Endpoint {
         Endpoint(method: .post, path: "/api/chapters/\(chapterID)/draft/generate")
     }
 
+    static func generateDraftStream(chapterID: String) -> Endpoint {
+        Endpoint(method: .post, path: "/api/chapters/\(chapterID)/draft/generate/stream", headers: ["Accept": "text/event-stream"])
+    }
+
     static func getLatestDraft(chapterID: String) -> Endpoint {
         Endpoint(method: .get, path: "/api/chapters/\(chapterID)/draft/latest")
+    }
+
+    static func getAgentRuns(chapterID: String) -> Endpoint {
+        Endpoint(method: .get, path: "/api/chapters/\(chapterID)/agent-runs")
     }
 
     static func reviewDraft(chapterID: String, request: DraftReviewRequest) throws -> Endpoint {

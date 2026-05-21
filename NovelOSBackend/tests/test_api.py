@@ -9,6 +9,7 @@ from alembic.config import Config
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import BaseModel, Field
 from sqlalchemy import JSON, Column, Float, ForeignKey, Integer, MetaData, String, Table, Text, UniqueConstraint, create_engine, inspect, select
 from sqlalchemy.orm import sessionmaker
 
@@ -26,11 +27,21 @@ from app.models import (
 )
 from app.seed import seed_database
 from app.services import run_audit_pipeline
-from app.llm.gateway import LLMGatewayError, LLMResult, OpenAICompatibleGateway
+from app.llm.errors import LLMAuthError, LLMGatewayError, LLMJSONParseError
+from app.llm.gateway import LLMResult, LLMStreamChunk, OpenAICompatibleGateway
 
 
 def json_from_request(request: httpx.Request) -> dict:
     return json.loads(request.content.decode("utf-8"))
+
+
+class UnitSchema(BaseModel):
+    ok: bool
+    value: int
+
+
+class StrictUnitSchema(BaseModel):
+    required_text: str = Field(min_length=3)
 
 
 class FakeGateway:
@@ -45,7 +56,7 @@ class FakeGateway:
             token_usage={"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3},
         )
 
-    def complete_structured(self, prompt: str, *, schema_name: str, system=None, metadata=None) -> LLMResult:
+    def complete_structured(self, prompt: str, *, schema_name: str, system=None, metadata=None, schema=None) -> LLMResult:
         self.calls.append(schema_name)
         payload_by_schema = {
             "intent_parser": {
@@ -77,22 +88,72 @@ class FakeGateway:
                 "detected_status": "ready_for_canon_bootstrap",
                 "world_bible_sections": [
                     {
+                        "section_key": "tone_and_style",
                         "title": "开篇基调",
-                        "content": "旧码头是开篇核心地点。",
+                        "content": "旧码头是开篇核心地点，后续叙事必须保持冷感克制和现实约束。",
                         "tags": ["旧码头"],
                         "importance": "high",
                         "activation_policy": "always_in_context_brief",
-                    }
+                    },
+                    {
+                        "section_key": "real_world_background",
+                        "title": "现实背景",
+                        "content": "故事按现实城市规则推进，人物调查和行动都需要受到公共规则约束。",
+                        "tags": ["现实"],
+                        "importance": "medium",
+                        "activation_policy": "tag_matched",
+                    },
+                    {
+                        "section_key": "forbidden_patterns",
+                        "title": "禁忌写法",
+                        "content": "不能直接揭露旧案真相，也不能让人物突然知道前三章没有写明的信息。",
+                        "tags": ["禁忌"],
+                        "importance": "high",
+                        "activation_policy": "always_considered",
+                    },
+                    {
+                        "section_key": "time_and_place",
+                        "title": "时空信息",
+                        "content": "前三章围绕旧码头线索推进，后续章节沿着既有时间线自然前进。",
+                        "tags": ["时间线"],
+                        "importance": "medium",
+                        "activation_policy": "tag_matched",
+                    },
+                    {
+                        "section_key": "themes",
+                        "title": "主题母题",
+                        "content": "主题围绕怀疑、克制和未公开真相展开，冲突应来自人物选择。",
+                        "tags": ["主题"],
+                        "importance": "medium",
+                        "activation_policy": "tag_matched",
+                    },
+                    {
+                        "section_key": "profession_and_society",
+                        "title": "职业与社会规则",
+                        "content": "警方、学校或公共机构相关内容必须遵守现实程序，不能游戏化推进。",
+                        "tags": ["社会规则"],
+                        "importance": "medium",
+                        "activation_policy": "tag_matched",
+                    },
+                    {
+                        "section_key": "value_boundary",
+                        "title": "价值边界",
+                        "content": "人物互动保持边界和现实伦理，旁白不能替角色确认未知事实。",
+                        "tags": ["边界"],
+                        "importance": "high",
+                        "activation_policy": "always_considered",
+                    },
                 ],
                 "character_cards": [
                     {
                         "name": "A",
                         "aliases": [],
-                        "role": "主角",
-                        "stable_traits": ["克制"],
-                        "current_state": "正在调查旧案。",
-                        "dialogue_style": "短句。",
+                        "role": "protagonist",
+                        "stable_traits": ["克制", "敏锐"],
+                        "current_state": {"physical": "正常", "emotional": "警觉", "goal": "调查旧案线索"},
+                        "voice": {"dialogue_style": "短句。", "forbidden": ["不能突然全知旧案真相"]},
                         "relationships": [],
+                        "knowledge_summary": {"knows": [], "suspects": ["B 与旧案有关"], "does_not_know": ["旧案真相"]},
                         "forbidden_behavior": ["不能突然全知旧案真相"],
                         "last_active_chapter_no": 3,
                     }
@@ -110,15 +171,11 @@ class FakeGateway:
                 ],
                 "knowledge_matrix": [
                     {
-                        "fact_title": "B 与旧案有关",
                         "fact": "B 可能知道旧案线索。",
-                        "truth_status": "author_only",
-                        "author_knowledge": "known",
-                        "reader_knowledge": "hinted",
-                        "character_knowledge": [
-                            {"character_name": "A", "state": "suspects"}
-                        ],
-                        "allowed_narration": "只能写 A 的怀疑，不能确认。",
+                        "truth_status": "hinted",
+                        "visibility": {"author": "known", "reader": "hinted", "A": "suspects"},
+                        "allowed_narration": {"summary": "只能写 A 的怀疑，不能确认。"},
+                        "source": "第二章",
                     }
                 ],
             },
@@ -135,12 +192,24 @@ class FakeGateway:
             token_usage={"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3},
         )
 
+    def stream_text(self, prompt: str, *, system=None, metadata=None):
+        yield LLMStreamChunk(content="这是 ", model="fake-live")
+        yield LLMStreamChunk(content="stream fake 正文。", model="fake-live")
+        yield LLMStreamChunk(
+            content="",
+            model="fake-live",
+            token_usage={"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3},
+        )
+
 
 class FailingGateway:
     def complete_text(self, prompt: str, *, system=None, metadata=None) -> LLMResult:
         raise LLMGatewayError("test provider failed")
 
-    def complete_structured(self, prompt: str, *, schema_name: str, system=None, metadata=None) -> LLMResult:
+    def complete_structured(self, prompt: str, *, schema_name: str, system=None, metadata=None, schema=None) -> LLMResult:
+        raise LLMGatewayError("test provider failed")
+
+    def stream_text(self, prompt: str, *, system=None, metadata=None):
         raise LLMGatewayError("test provider failed")
 
 
@@ -197,8 +266,8 @@ def test_health_and_seeded_reads(client: TestClient):
 
     matrix = client.get("/api/novels/novel_001/knowledge-matrix")
     assert matrix.status_code == 200
-    assert matrix.json()[0]["character_knowledge"][0]["character_id"] == "char_A"
     assert matrix.json()[0]["visibility"]["char_A"] == "suspects"
+    assert "character_knowledge" not in matrix.json()[0]
 
     chapters = client.get("/api/novels/novel_001/chapters")
     assert chapters.status_code == 200
@@ -343,6 +412,15 @@ def test_novel_crud_and_bootstrap_flow(client: TestClient):
     memory = client.get("/api/novels/novel_test/memory").json()
     matrix = client.get("/api/novels/novel_test/knowledge-matrix").json()
     assert world[0]["title"]
+    assert {section["section_key"] for section in world} == {
+        "tone_and_style",
+        "real_world_background",
+        "forbidden_patterns",
+        "time_and_place",
+        "themes",
+        "profession_and_society",
+        "value_boundary",
+    }
     assert characters[0]["name"]
     assert memory[0]["created_by"] == "import_agent"
     assert matrix[0]["allowed_narration"]["summary"] or matrix[0]["allowed_narration"]["text"]
@@ -423,10 +501,13 @@ def test_openai_compatible_gateway_parses_structured_response():
         base_url="https://example.test/v1",
         model="test-model",
         client=client,
+        retry_backoff=(0, 0, 0),
+        rate_limit_backoff=(0, 0, 0),
     )
-    result = gateway.complete_structured("hello", schema_name="unit_test")
+    result = gateway.complete_structured("hello", schema_name="unit_test", schema=UnitSchema)
     assert result.structured == {"ok": True, "value": 7}
     assert result.token_usage["total_tokens"] == 7
+    assert result.token_usage["model"] == "test-model"
 
 
 def test_openai_compatible_gateway_extracts_json_from_extra_text():
@@ -446,8 +527,107 @@ def test_openai_compatible_gateway_extracts_json_from_extra_text():
         base_url="https://example.test/v1",
         model="test-model",
         client=client,
+        retry_backoff=(0, 0, 0),
+        rate_limit_backoff=(0, 0, 0),
     )
     assert gateway.complete_structured("hello", schema_name="dirty_json").structured == {"ok": True}
+
+
+def test_llm_gateway_retry_on_timeout():
+    calls = {"count": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise httpx.ReadTimeout("slow")
+        return httpx.Response(
+            200,
+            json={
+                "model": "test-model",
+                "choices": [{"message": {"content": "ok"}}],
+                "usage": {"total_tokens": 2},
+            },
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler), base_url="https://example.test")
+    gateway = OpenAICompatibleGateway(
+        api_key="test-key",
+        base_url="https://example.test/v1",
+        model="test-model",
+        client=client,
+        retry_backoff=(0, 0, 0),
+    )
+    assert gateway.complete_text("hello").content == "ok"
+    assert calls["count"] == 2
+
+
+def test_llm_gateway_429_backoff():
+    calls = {"count": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return httpx.Response(429, text="rate limited")
+        return httpx.Response(
+            200,
+            json={"model": "test-model", "choices": [{"message": {"content": "ok"}}], "usage": {}},
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler), base_url="https://example.test")
+    gateway = OpenAICompatibleGateway(
+        api_key="test-key",
+        base_url="https://example.test/v1",
+        model="test-model",
+        client=client,
+        rate_limit_backoff=(0, 0, 0),
+    )
+    assert gateway.complete_text("hello").content == "ok"
+    assert calls["count"] == 2
+
+
+def test_llm_gateway_auth_error_not_retryable():
+    calls = {"count": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["count"] += 1
+        return httpx.Response(401, text="bad key")
+
+    client = httpx.Client(transport=httpx.MockTransport(handler), base_url="https://example.test")
+    gateway = OpenAICompatibleGateway(
+        api_key="test-key",
+        base_url="https://example.test/v1",
+        model="test-model",
+        client=client,
+        retry_backoff=(0, 0, 0),
+    )
+    with pytest.raises(LLMAuthError):
+        gateway.complete_text("hello")
+    assert calls["count"] == 1
+
+
+def test_structured_output_schema_validation_retries_once():
+    calls = {"count": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["count"] += 1
+        content = "{\"required_text\":\"ok\"}" if calls["count"] == 1 else "{\"required_text\":\"okay\"}"
+        return httpx.Response(
+            200,
+            json={"model": "test-model", "choices": [{"message": {"content": content}}], "usage": {}},
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler), base_url="https://example.test")
+    gateway = OpenAICompatibleGateway(
+        api_key="test-key",
+        base_url="https://example.test/v1",
+        model="test-model",
+        client=client,
+        retry_backoff=(0, 0, 0),
+    )
+    assert gateway.complete_structured("hello", schema_name="strict", schema=StrictUnitSchema).structured == {
+        "required_text": "okay"
+    }
+    assert calls["count"] == 2
 
 
 def test_live_mode_agents_use_injected_gateway(monkeypatch):
@@ -511,7 +691,9 @@ def test_bootstrap_analysis_records_retryable_llm_failure(client: TestClient, mo
 
     failed = client.post("/api/novels/novel_failure/bootstrap/analyze")
     assert failed.status_code == 502
-    assert "大模型调用失败" in failed.json()["detail"]
+    assert failed.json()["error"]["kind"] == "llm"
+    assert failed.json()["error"]["retryable"] is True
+    assert "test provider failed" in failed.json()["error"]["message"]
 
     session_factory = client.app.state.testing_session_factory
     with session_factory() as session:
@@ -524,6 +706,50 @@ def test_bootstrap_analysis_records_retryable_llm_failure(client: TestClient, mo
         assert failure_run is not None
         assert failure_run.agent_name == "Import Agent"
         assert failure_run.error_message
+        assert failure_run.payload["retryable"] is True
+
+
+def test_bootstrap_schema_validation_fails_records_parse_error(client: TestClient, monkeypatch):
+    class InvalidBootstrapGateway:
+        def complete_text(self, prompt: str, *, system=None, metadata=None) -> LLMResult:
+            return LLMResult(content="unused", model="invalid")
+
+        def complete_structured(self, prompt: str, *, schema_name: str, system=None, metadata=None, schema=None) -> LLMResult:
+            raise LLMJSONParseError("LLM response failed schema validation.", raw_preview="{bad}")
+
+    monkeypatch.setenv("NOVEL_OS_LLM_MODE", "live")
+    monkeypatch.setattr("app.orchestrator.make_llm_gateway", lambda: InvalidBootstrapGateway())
+
+    assert client.post(
+        "/api/novels",
+        json={"id": "novel_parse_failure", "title": "格式失败", "genre": "悬疑"},
+    ).status_code == 200
+    assert client.post(
+        "/api/novels/novel_parse_failure/bootstrap/import-first-three-chapters",
+        json={
+            "chapters": [
+                {"chapter_no": 1, "title": "一", "text": "第一章正文"},
+                {"chapter_no": 2, "title": "二", "text": "第二章正文"},
+                {"chapter_no": 3, "title": "三", "text": "第三章正文"},
+            ]
+        },
+    ).status_code == 200
+
+    failed = client.post("/api/novels/novel_parse_failure/bootstrap/analyze")
+    assert failed.status_code == 502
+    assert failed.json()["error"]["kind"] == "parse"
+    assert failed.json()["error"]["retryable"] is True
+
+    session_factory = client.app.state.testing_session_factory
+    with session_factory() as session:
+        failure_run = session.scalar(
+            select(AgentRunModel).where(
+                AgentRunModel.novel_id == "novel_parse_failure",
+                AgentRunModel.status == "failed",
+            )
+        )
+        assert failure_run is not None
+        assert failure_run.payload["kind"] == "parse"
         assert failure_run.payload["retryable"] is True
 
 
@@ -593,12 +819,47 @@ def test_knowledge_matrix_crud(client: TestClient):
     created = client.post("/api/novels/novel_001/knowledge-matrix", json=entry)
     assert created.status_code == 200
     assert created.json()["fact_title"] == "测试事实"
+    assert created.json()["visibility"]["A"] == "unknown"
+    assert "character_knowledge" not in created.json()
 
     entry["allowed_narration"] = {"text": "只能写怀疑。"}
+    entry["visibility"] = {"author": "known", "reader": "hinted", "A": "suspects"}
     updated = client.patch("/api/novels/novel_001/knowledge-matrix/km_test", json=entry)
     assert updated.json()["allowed_narration"]["text"] == "只能写怀疑。"
+    assert updated.json()["visibility"] == {"author": "known", "reader": "hinted", "A": "suspects"}
 
     assert client.delete("/api/novels/novel_001/knowledge-matrix/km_test").status_code == 204
+
+
+def test_km_visibility_dict_roundtrip_and_legacy_list_input(client: TestClient):
+    legacy_entry = {
+        "id": "km_visibility_legacy",
+        "fact": "旧请求兼容",
+        "fact_title": "旧请求兼容",
+        "truth_status": "hinted",
+        "author_knowledge": "known",
+        "reader_knowledge": "reader_unknown",
+        "character_knowledge": [
+            {"character_id": "char_A", "character_name": "A", "state": "suspects"}
+        ],
+        "allowed_narration": {"summary": "只能写怀疑。"},
+        "canon_version": 1,
+    }
+    legacy_response = client.post("/api/novels/novel_001/knowledge-matrix", json=legacy_entry)
+    assert legacy_response.status_code == 200
+    assert legacy_response.json()["visibility"]["A"] == "suspects"
+    assert "character_knowledge" not in legacy_response.json()
+
+    dict_entry = {
+        **legacy_entry,
+        "id": "km_visibility_dict",
+        "fact_title": "dict 请求",
+        "visibility": {"author": "known", "reader": "reader_known", "A": "known"},
+        "character_knowledge": [],
+    }
+    dict_response = client.post("/api/novels/novel_001/knowledge-matrix", json=dict_entry)
+    assert dict_response.status_code == 200
+    assert dict_response.json()["visibility"] == {"author": "known", "reader": "reader_known", "A": "known"}
 
 
 def test_chapter_workflow_five_step_mock_flow(client: TestClient):
@@ -714,6 +975,8 @@ def test_live_canon_patch_uses_extraction_and_merges_base_docs(client: TestClien
 
     session_factory = client.app.state.testing_session_factory
     with session_factory() as session:
+        live_chapter = session.scalar(select(ChapterModel).where(ChapterModel.id == "novel_live_patch_chapter_004"))
+        live_chapter.status = "draftApproved"
         session.add(
             DraftModel(
                 id="draft_live_patch_v1",
@@ -755,9 +1018,14 @@ def test_live_canon_patch_uses_extraction_and_merges_base_docs(client: TestClien
 
 
 def test_s0_audit_blocks_draft_approval(client: TestClient):
+    session_factory = client.app.state.testing_session_factory
+    with session_factory() as session:
+        chapter = session.scalar(select(ChapterModel).where(ChapterModel.id == "chapter_004"))
+        chapter.status = "structuredPromptApproved"
+        session.commit()
+
     assert client.post("/api/chapters/chapter_004/draft/generate").status_code == 204
 
-    session_factory = client.app.state.testing_session_factory
     with session_factory() as session:
         draft = session.scalar(select(DraftModel).where(DraftModel.id == "draft_004_v3"))
         draft.audit_summary = {
@@ -779,7 +1047,85 @@ def test_s0_audit_blocks_draft_approval(client: TestClient):
 
     response = client.post("/api/chapters/chapter_004/draft/review", json={"decision": "approve"})
     assert response.status_code == 409
-    assert "S0" in response.json()["detail"]
+    assert "S0" in response.json()["error"]["message"]
+
+
+def test_workflow_state_machine_rejects_skip(client: TestClient):
+    response = client.post("/api/chapters/chapter_004/draft/generate")
+    assert response.status_code == 409
+    assert response.json()["error"] == {
+        "kind": "workflow",
+        "message": "请先完成上一步：无法从 draftInput 跳到 draftGenerated。",
+        "retryable": False,
+    }
+
+
+def test_stream_draft_generation_emits_events_and_admin_runs(client: TestClient):
+    response = client.post("/api/chapters/chapter_004/user-prompt", json={"prompt": "让 A 在旧码头试探 B。"})
+    assert response.status_code == 204
+    assert client.post("/api/chapters/chapter_004/structured-prompt/approve").status_code == 204
+
+    stream = client.post("/api/chapters/chapter_004/draft/generate/stream")
+    assert stream.status_code == 200
+    events = [
+        json.loads(line.removeprefix("data:").strip())
+        for line in stream.text.splitlines()
+        if line.startswith("data:")
+    ]
+    assert any(event["event"] == "delta" for event in events)
+    assert any(event["event"] == "word_count" for event in events)
+    assert events[-1]["event"] == "done"
+    assert events[-1]["draft_id"]
+
+    draft = client.get("/api/chapters/chapter_004/draft/latest").json()
+    assert draft["id"] == events[-1]["draft_id"]
+    assert draft["word_count"] > 0
+
+    runs = client.get("/api/admin/agent-runs?chapter_id=chapter_004").json()
+    writing_run = next(run for run in runs if run["agent_name"] == "Writing Agent")
+    assert writing_run["run_type"] == "draft"
+    assert writing_run["latency_ms"] is not None
+    assert writing_run["token_usage"]["model"] == "mock"
+
+
+def test_s0_auto_revision_caps_at_two_attempts(client: TestClient, monkeypatch):
+    from app import services
+
+    original = services.run_audit_pipeline
+
+    def always_s0(session, chapter, draft, *, timestamp_prefix):
+        report = original(session, chapter, draft, timestamp_prefix=timestamp_prefix)
+        summary = dict(report.summary)
+        summary["s0_count"] = 1
+        summary["illegal_named_entity_count"] = 1
+        summary["issues"] = [
+            {
+                "id": f"forced_s0_{draft.version_no}",
+                "severity": "S0",
+                "type": "测试硬错误",
+                "location": "测试",
+                "message": "强制 S0 用于验证自动修复上限。",
+                "suggestion": "重写。",
+            }
+        ]
+        draft.audit_summary = summary
+        report.summary = summary
+        report.passed = False
+        report.highest_severity = "S0"
+        return report
+
+    monkeypatch.setattr(services, "run_audit_pipeline", always_s0)
+
+    assert client.post("/api/chapters/chapter_004/user-prompt", json={"prompt": "让 A 在旧码头试探 B。"}).status_code == 204
+    assert client.post("/api/chapters/chapter_004/structured-prompt/approve").status_code == 204
+    response = client.post("/api/chapters/chapter_004/draft/generate")
+    assert response.status_code == 204
+
+    draft = client.get("/api/chapters/chapter_004/draft/latest").json()
+    assert draft["version_no"] == 5
+    runs = client.get("/api/chapters/chapter_004/agent-runs").json()
+    revision_runs = [run for run in runs if run["agent_name"] == "Revision Agent"]
+    assert len(revision_runs) == 2
 
 
 def test_deterministic_safety_audit_flags_illegal_names_and_knowledge_leaks(client: TestClient):
@@ -843,6 +1189,8 @@ def test_alembic_migration_upgrade_and_downgrade(tmp_path):
     assert {"pass", "highest_severity"} <= audit_columns
     matrix_columns = {column["name"] for column in inspector.get_columns("knowledge_matrix_entries")}
     assert "visibility" in matrix_columns
+    visibility_column = next(column for column in inspector.get_columns("knowledge_matrix_entries") if column["name"] == "visibility")
+    assert visibility_column["nullable"] is False
 
     command.downgrade(config, "base")
     inspector = inspect(engine)

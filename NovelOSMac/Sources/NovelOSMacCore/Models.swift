@@ -51,7 +51,7 @@ public enum AnyCodable: Codable, Equatable, Sendable {
     }
 }
 
-private extension AnyCodable {
+public extension AnyCodable {
     var displayString: String? {
         switch self {
         case .string(let value):
@@ -367,9 +367,9 @@ public struct LLMTestResponse: Codable, Equatable, Sendable {
     public var providerId: String
     public var model: String
     public var message: String
-    public var tokenUsage: [String: Int]
+    public var tokenUsage: [String: AnyCodable]
 
-    public init(ok: Bool, providerId: String, model: String, message: String, tokenUsage: [String: Int]) {
+    public init(ok: Bool, providerId: String, model: String, message: String, tokenUsage: [String: AnyCodable]) {
         self.ok = ok
         self.providerId = providerId
         self.model = model
@@ -499,6 +499,7 @@ public enum PatchUserDecision: String, Codable, CaseIterable, Identifiable, Send
 
 public struct WorldBibleSection: Identifiable, Codable, Equatable, Sendable {
     public let id: String
+    public var sectionKey: String? = nil
     public var title: String
     public var content: String
     public var tags: [String]
@@ -550,7 +551,7 @@ public struct CharacterCard: Identifiable, Codable, Equatable, Sendable {
     public var aliases: [String]
     public var role: String
     public var stableTraits: [String]
-    public var currentState: String
+    public var currentState: CharacterCurrentState
     public var dialogueStyle: String
     public var relationships: [CharacterRelationship]
     public var forbiddenBehavior: [String]
@@ -577,7 +578,7 @@ public struct CharacterCard: Identifiable, Codable, Equatable, Sendable {
         aliases: [String],
         role: String,
         stableTraits: [String],
-        currentState: String,
+        currentState: CharacterCurrentState,
         dialogueStyle: String,
         relationships: [CharacterRelationship],
         forbiddenBehavior: [String],
@@ -597,6 +598,34 @@ public struct CharacterCard: Identifiable, Codable, Equatable, Sendable {
         self.canonVersion = canonVersion
     }
 
+    public init(
+        id: String,
+        name: String,
+        aliases: [String],
+        role: String,
+        stableTraits: [String],
+        currentState: String,
+        dialogueStyle: String,
+        relationships: [CharacterRelationship],
+        forbiddenBehavior: [String],
+        lastActiveChapterNo: Int?,
+        canonVersion: Int
+    ) {
+        self.init(
+            id: id,
+            name: name,
+            aliases: aliases,
+            role: role,
+            stableTraits: stableTraits,
+            currentState: CharacterCurrentState(summary: currentState),
+            dialogueStyle: dialogueStyle,
+            relationships: relationships,
+            forbiddenBehavior: forbiddenBehavior,
+            lastActiveChapterNo: lastActiveChapterNo,
+            canonVersion: canonVersion
+        )
+    }
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
@@ -604,12 +633,60 @@ public struct CharacterCard: Identifiable, Codable, Equatable, Sendable {
         aliases = try container.decodeIfPresent([String].self, forKey: .aliases) ?? []
         role = try container.decodeIfPresent(String.self, forKey: .role) ?? ""
         stableTraits = try container.decodeIfPresent([String].self, forKey: .stableTraits) ?? []
-        currentState = try container.decodeStringOrSummary(forKey: .currentState)
+        currentState = try container.decodeIfPresent(CharacterCurrentState.self, forKey: .currentState) ?? CharacterCurrentState()
         dialogueStyle = try container.decodeStringOrSummary(forKey: .dialogueStyle)
         relationships = try container.decodeIfPresent([CharacterRelationship].self, forKey: .relationships) ?? []
         forbiddenBehavior = try container.decodeIfPresent([String].self, forKey: .forbiddenBehavior) ?? []
         lastActiveChapterNo = try container.decodeIfPresent(Int.self, forKey: .lastActiveChapterNo)
         canonVersion = try container.decodeIfPresent(Int.self, forKey: .canonVersion) ?? 1
+    }
+}
+
+public struct CharacterCurrentState: Codable, Equatable, Sendable {
+    public var physical: String
+    public var emotional: String
+    public var goal: String
+    public var summary: String
+
+    public init(physical: String = "", emotional: String = "", goal: String = "", summary: String = "") {
+        self.physical = physical
+        self.emotional = emotional
+        self.goal = goal
+        self.summary = summary
+    }
+
+    public var displaySummary: String {
+        summary.isEmpty ? [physical, emotional, goal].filter { !$0.isEmpty }.joined(separator: " / ") : summary
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let value = try? container.decode(String.self) {
+            self.init(summary: value)
+            return
+        }
+        if let value = try? container.decode([String: String].self) {
+            self.init(
+                physical: value["physical"] ?? "",
+                emotional: value["emotional"] ?? "",
+                goal: value["goal"] ?? "",
+                summary: value["summary"] ?? value["text"] ?? value["content"] ?? ""
+            )
+            return
+        }
+        if let value = try? container.decode([String: AnyCodable].self) {
+            self.init(
+                physical: value["physical"]?.displayString ?? "",
+                emotional: value["emotional"]?.displayString ?? "",
+                goal: value["goal"]?.displayString ?? "",
+                summary: value["summary"]?.displayString
+                    ?? value["text"]?.displayString
+                    ?? value["content"]?.displayString
+                    ?? ""
+            )
+            return
+        }
+        self.init()
     }
 }
 
@@ -627,7 +704,7 @@ public struct KnowledgeMatrixEntry: Identifiable, Codable, Equatable, Sendable {
     public var truthStatus: String
     public var authorKnowledge: KnowledgeState
     public var readerKnowledge: KnowledgeState
-    public var characterKnowledge: [CharacterKnowledge]
+    public var visibility: [String: KnowledgeState]
     public var allowedNarration: String
     public var canonVersion: Int
 
@@ -637,6 +714,7 @@ public struct KnowledgeMatrixEntry: Identifiable, Codable, Equatable, Sendable {
         case truthStatus
         case authorKnowledge
         case readerKnowledge
+        case visibility
         case characterKnowledge
         case allowedNarration
         case canonVersion
@@ -648,7 +726,7 @@ public struct KnowledgeMatrixEntry: Identifiable, Codable, Equatable, Sendable {
         truthStatus: String,
         authorKnowledge: KnowledgeState,
         readerKnowledge: KnowledgeState,
-        characterKnowledge: [CharacterKnowledge],
+        visibility: [String: KnowledgeState],
         allowedNarration: String,
         canonVersion: Int
     ) {
@@ -657,7 +735,7 @@ public struct KnowledgeMatrixEntry: Identifiable, Codable, Equatable, Sendable {
         self.truthStatus = truthStatus
         self.authorKnowledge = authorKnowledge
         self.readerKnowledge = readerKnowledge
-        self.characterKnowledge = characterKnowledge
+        self.visibility = visibility
         self.allowedNarration = allowedNarration
         self.canonVersion = canonVersion
     }
@@ -669,9 +747,31 @@ public struct KnowledgeMatrixEntry: Identifiable, Codable, Equatable, Sendable {
         truthStatus = try container.decodeIfPresent(String.self, forKey: .truthStatus) ?? ""
         authorKnowledge = try container.decodeIfPresent(KnowledgeState.self, forKey: .authorKnowledge) ?? .unknown
         readerKnowledge = try container.decodeIfPresent(KnowledgeState.self, forKey: .readerKnowledge) ?? .readerUnknown
-        characterKnowledge = try container.decodeIfPresent([CharacterKnowledge].self, forKey: .characterKnowledge) ?? []
+        var normalizedVisibility = try container.decodeIfPresent([String: KnowledgeState].self, forKey: .visibility) ?? [:]
+        if let legacyKnowledge = try container.decodeIfPresent([CharacterKnowledge].self, forKey: .characterKnowledge) {
+            for item in legacyKnowledge {
+                let key = item.characterName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? item.characterId
+                    : item.characterName
+                guard !key.isEmpty else { continue }
+                normalizedVisibility[key] = item.state
+            }
+        }
+        visibility = normalizedVisibility
         allowedNarration = try container.decodeStringOrSummary(forKey: .allowedNarration)
         canonVersion = try container.decodeIfPresent(Int.self, forKey: .canonVersion) ?? 1
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(factTitle, forKey: .factTitle)
+        try container.encode(truthStatus, forKey: .truthStatus)
+        try container.encode(authorKnowledge, forKey: .authorKnowledge)
+        try container.encode(readerKnowledge, forKey: .readerKnowledge)
+        try container.encode(visibility, forKey: .visibility)
+        try container.encode(allowedNarration, forKey: .allowedNarration)
+        try container.encode(canonVersion, forKey: .canonVersion)
     }
 }
 
@@ -680,6 +780,15 @@ public struct CharacterKnowledge: Identifiable, Codable, Equatable, Sendable {
     public var characterId: String
     public var characterName: String
     public var state: KnowledgeState
+}
+
+public extension KnowledgeMatrixEntry {
+    var characterVisibility: [String: KnowledgeState] {
+        visibility.filter { key, _ in
+            let normalized = key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return normalized != "author" && normalized != "reader" && !normalized.isEmpty
+        }
+    }
 }
 
 public enum KnowledgeState: String, Codable, CaseIterable, Identifiable, Sendable {
@@ -726,10 +835,141 @@ public struct MemoryFact: Identifiable, Codable, Equatable, Sendable {
 
 public struct AgentRun: Identifiable, Codable, Equatable, Sendable {
     public let id: String
+    public var novelId: String?
+    public var chapterId: String?
     public var agentName: String
+    public var runType: String
+    public var model: String?
     public var summary: String
     public var status: String
+    public var payload: [String: AnyCodable]
+    public var inputPayload: [String: AnyCodable]
+    public var outputPayload: [String: AnyCodable]
+    public var inputJson: [String: AnyCodable]
+    public var outputJson: [String: AnyCodable]
+    public var tokenUsage: [String: AnyCodable]
+    public var errorMessage: String?
+    public var startedAt: Double?
+    public var completedAt: String?
+    public var latencyMs: Double?
+    public var createdAt: Double
     public var timestampLabel: String
+
+    public init(
+        id: String,
+        novelId: String? = nil,
+        chapterId: String? = nil,
+        agentName: String,
+        runType: String = "workflow",
+        model: String? = nil,
+        summary: String,
+        status: String,
+        payload: [String: AnyCodable] = [:],
+        inputPayload: [String: AnyCodable] = [:],
+        outputPayload: [String: AnyCodable] = [:],
+        inputJson: [String: AnyCodable] = [:],
+        outputJson: [String: AnyCodable] = [:],
+        tokenUsage: [String: AnyCodable] = [:],
+        errorMessage: String? = nil,
+        startedAt: Double? = nil,
+        completedAt: String? = nil,
+        latencyMs: Double? = nil,
+        createdAt: Double = 0,
+        timestampLabel: String = "—"
+    ) {
+        self.id = id
+        self.novelId = novelId
+        self.chapterId = chapterId
+        self.agentName = agentName
+        self.runType = runType
+        self.model = model
+        self.summary = summary
+        self.status = status
+        self.payload = payload
+        self.inputPayload = inputPayload
+        self.outputPayload = outputPayload
+        self.inputJson = inputJson
+        self.outputJson = outputJson
+        self.tokenUsage = tokenUsage
+        self.errorMessage = errorMessage
+        self.startedAt = startedAt
+        self.completedAt = completedAt
+        self.latencyMs = latencyMs
+        self.createdAt = createdAt
+        self.timestampLabel = timestampLabel == "—" ? Self.timestampLabel(from: createdAt) : timestampLabel
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case novelId
+        case chapterId
+        case agentName
+        case runType
+        case model
+        case summary
+        case status
+        case payload
+        case inputPayload
+        case outputPayload
+        case inputJson
+        case outputJson
+        case tokenUsage
+        case errorMessage
+        case startedAt
+        case completedAt
+        case latencyMs
+        case createdAt
+        case timestampLabel
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        novelId = try container.decodeIfPresent(String.self, forKey: .novelId)
+        chapterId = try container.decodeIfPresent(String.self, forKey: .chapterId)
+        agentName = try container.decode(String.self, forKey: .agentName)
+        runType = try container.decodeIfPresent(String.self, forKey: .runType) ?? "workflow"
+        model = try container.decodeIfPresent(String.self, forKey: .model)
+        summary = try container.decodeIfPresent(String.self, forKey: .summary) ?? ""
+        status = try container.decodeIfPresent(String.self, forKey: .status) ?? "unknown"
+        payload = try container.decodeIfPresent([String: AnyCodable].self, forKey: .payload) ?? [:]
+        inputPayload = try container.decodeIfPresent([String: AnyCodable].self, forKey: .inputPayload) ?? [:]
+        outputPayload = try container.decodeIfPresent([String: AnyCodable].self, forKey: .outputPayload) ?? [:]
+        inputJson = try container.decodeIfPresent([String: AnyCodable].self, forKey: .inputJson) ?? inputPayload
+        outputJson = try container.decodeIfPresent([String: AnyCodable].self, forKey: .outputJson) ?? outputPayload
+        tokenUsage = try container.decodeIfPresent([String: AnyCodable].self, forKey: .tokenUsage) ?? [:]
+        errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
+        startedAt = try container.decodeIfPresent(Double.self, forKey: .startedAt)
+        completedAt = try container.decodeIfPresent(String.self, forKey: .completedAt)
+        latencyMs = try container.decodeIfPresent(Double.self, forKey: .latencyMs)
+        createdAt = try container.decodeIfPresent(Double.self, forKey: .createdAt) ?? 0
+        timestampLabel = try container.decodeIfPresent(String.self, forKey: .timestampLabel) ?? Self.timestampLabel(from: createdAt)
+    }
+
+    private static func timestampLabel(from createdAt: Double) -> String {
+        guard createdAt > 0 else { return "—" }
+        let date = Date(timeIntervalSinceReferenceDate: createdAt)
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
+    }
+}
+
+public struct DraftStreamErrorPayload: Codable, Equatable, Sendable {
+    public var kind: String
+    public var message: String
+    public var retryable: Bool
+    public var partialWordCount: Int?
+}
+
+public struct DraftStreamEvent: Codable, Equatable, Sendable {
+    public var event: String
+    public var delta: String?
+    public var wordCount: Int?
+    public var tokens: [String: AnyCodable]?
+    public var draftId: String?
+    public var versionNo: Int?
+    public var error: DraftStreamErrorPayload?
 }
 
 public struct ChapterVersionSnapshot: Identifiable, Codable, Equatable, Sendable {

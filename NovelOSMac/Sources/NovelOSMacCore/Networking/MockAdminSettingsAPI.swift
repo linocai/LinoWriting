@@ -67,7 +67,7 @@ public actor MockAdminSettingsAPI: AdminSettingsAPI {
             providerId: id,
             model: response.providers.first(where: { $0.id == id })?.model ?? "mock-model",
             message: "ok",
-            tokenUsage: ["total_tokens": 2]
+            tokenUsage: ["total_tokens": .int(2), "model": .string("mock-model")]
         )
     }
 

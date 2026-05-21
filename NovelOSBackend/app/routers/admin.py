@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import re
+from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app import config
+from app.database import get_session
 from app.llm.gateway import LLMGatewayError, OpenAICompatibleGateway
+from app.models import AgentRunModel
 from app.schemas import (
     ActiveLLMProviderRequest,
+    AgentRun,
     LLMProviderPublic,
     LLMProvidersResponse,
     LLMProviderUpsert,
@@ -16,6 +22,20 @@ from app.schemas import (
 )
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+
+@router.get("/agent-runs", response_model=list[AgentRun])
+def list_agent_runs(
+    novel_id: Optional[str] = None,
+    chapter_id: Optional[str] = None,
+    session: Session = Depends(get_session),
+):
+    query = select(AgentRunModel)
+    if novel_id:
+        query = query.where(AgentRunModel.novel_id == novel_id)
+    if chapter_id:
+        query = query.where(AgentRunModel.chapter_id == chapter_id)
+    return session.scalars(query.order_by(AgentRunModel.created_at, AgentRunModel.id)).all()
 
 
 @router.get("/llm/providers", response_model=LLMProvidersResponse)

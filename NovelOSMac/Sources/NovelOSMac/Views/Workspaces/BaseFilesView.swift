@@ -4,6 +4,7 @@ import SwiftUI
 struct BaseFilesView: View {
     @Environment(BaseDocumentsStore.self) private var store
     @Environment(ChapterWorkflowStore.self) private var chapterStore
+    @Environment(KnowledgeMatrixStore.self) private var knowledgeStore
 
     var body: some View {
         @Bindable var store = store
@@ -53,9 +54,11 @@ struct BaseFilesView: View {
             }
             .padding(AppTheme.pagePadding)
         }
+        .scrollIndicators(.visible)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AppBackgroundView())
         .task {
-            await store.loadDocuments()
+            await store.loadIfNeeded()
         }
     }
 
@@ -101,13 +104,19 @@ struct BaseFilesView: View {
                 PillView(text: "Canon v\(chapterStore.novel.currentCanonVersion ?? 12)", tone: .purple)
             }
             CardBody {
-                ForEach($store.worldBibleSections) { $section in
-                    PromptCard(title: section.title.isEmpty ? "未命名 Section" : section.title, badge: section.importance.displayName, tone: importanceTone(section.importance)) {
+                ForEach(worldBibleSectionIndices, id: \.self) { index in
+                    let section = $store.worldBibleSections[index]
+                    TemplateCard(title: section.wrappedValue.title.isEmpty ? "未命名 Section" : section.wrappedValue.title, badge: worldBibleBadge(section.wrappedValue), tone: importanceTone(section.wrappedValue.importance)) {
                         HStack {
+                            if let key = section.wrappedValue.sectionKey, !key.isEmpty {
+                                PillView(text: key, tone: .neutral)
+                            }
+                            PillView(text: "Canon v\(section.wrappedValue.canonVersion)", tone: .purple)
+                            PillView(text: section.wrappedValue.updatedAt.formatted(date: .abbreviated, time: .shortened), tone: .neutral)
                             Spacer()
                             Button(role: .destructive) {
                                 Task {
-                                    await store.deleteWorldBibleSection(id: section.id)
+                                    await store.deleteWorldBibleSection(id: section.wrappedValue.id)
                                 }
                             } label: {
                                 Image(systemName: "trash")
@@ -115,21 +124,21 @@ struct BaseFilesView: View {
                             .buttonStyle(DangerButtonStyle())
                         }
                         LabeledField("Section 标题") {
-                            SoftTextField(title: "Section 标题", text: $section.title)
+                            SoftTextField(title: "Section 标题", text: section.title)
                         }
                         LabeledField("内容") {
-                            SoftTextEditor(text: $section.content, minHeight: 120)
+                            SoftTextEditor(text: section.content, minHeight: 120)
                         }
                         HStack(alignment: .top, spacing: 12) {
                             LabeledField("重要性") {
-                                SoftPicker("重要性", selection: $section.importance) {
+                                SoftPicker("重要性", selection: section.importance) {
                                     ForEach(ImportanceLevel.allCases) { level in
                                         Text(level.displayName).tag(level)
                                     }
                                 }
                             }
                             LabeledField("激活策略") {
-                                SoftPicker("激活策略", selection: $section.activationPolicy) {
+                                SoftPicker("激活策略", selection: section.activationPolicy) {
                                     ForEach(ActivationPolicy.allCases) { policy in
                                         Text(policy.displayName).tag(policy)
                                     }
@@ -137,16 +146,12 @@ struct BaseFilesView: View {
                             }
                         }
                         LabeledField("Tags", hint: "逗号分隔，下面会预览") {
-                            SoftTextField(title: "Tags，用逗号分隔", text: tagsBinding(for: $section))
+                            SoftTextField(title: "Tags，用逗号分隔", text: tagsBinding(for: section))
                         }
                         FlowLayout {
-                            ForEach(section.tags, id: \.self) { tag in
+                            ForEach(section.wrappedValue.tags, id: \.self) { tag in
                                 EntityChip(text: tag, tone: .blue)
                             }
-                        }
-                        HStack {
-                            PillView(text: "Canon v\(section.canonVersion)", tone: .purple)
-                            PillView(text: section.updatedAt.formatted(date: .abbreviated, time: .shortened), tone: .neutral)
                         }
                     }
                 }
@@ -174,7 +179,7 @@ struct BaseFilesView: View {
             CardBody {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 360), spacing: 12, alignment: .top)], alignment: .leading, spacing: 12) {
                     ForEach($store.characterCards) { $card in
-                        PromptCard(title: card.name, badge: card.role, tone: .orange) {
+                        TemplateCard(title: card.name.isEmpty ? "未命名人物" : card.name, badge: card.role, tone: .orange) {
                             HStack {
                                 PillView(text: "Canon v\(card.canonVersion)", tone: .purple)
                                 if let chapterNo = card.lastActiveChapterNo {
@@ -183,29 +188,52 @@ struct BaseFilesView: View {
                                 Spacer()
                             }
 
-                            LabeledField("姓名") {
-                                SoftTextField(title: "姓名", text: $card.name)
+                            ContentBlock("基本信息", tone: .blue) {
+                                LabeledField("姓名") {
+                                    SoftTextField(title: "姓名", text: $card.name)
+                                }
+                                LabeledField("别名", hint: "逗号分隔") {
+                                    SoftTextField(title: "别名", text: stringArrayCommaBinding($card.aliases))
+                                }
+                                HStack(alignment: .top, spacing: 10) {
+                                    LabeledField("角色") {
+                                        SoftTextField(title: "角色", text: $card.role)
+                                    }
+                                    LabeledField("上次出场章节") {
+                                        SoftTextField(title: "例如 4", text: optionalIntBinding($card.lastActiveChapterNo))
+                                    }
+                                }
                             }
-                            LabeledField("别名", hint: "逗号分隔") {
-                                SoftTextField(title: "别名", text: stringArrayCommaBinding($card.aliases))
-                            }
-                            LabeledField("角色") {
-                                SoftTextField(title: "角色", text: $card.role)
-                            }
-                            LabeledField("稳定人格") {
+
+                            ContentBlock("稳定人格", tone: .green) {
                                 SoftTextEditor(text: stringArrayBinding($card.stableTraits), minHeight: 74)
                             }
-                            LabeledField("当前状态") {
-                                SoftTextEditor(text: $card.currentState, minHeight: 74)
+
+                            ContentBlock("当前状态", tone: .orange) {
+                                LabeledField("身体") {
+                                    SoftTextField(title: "physical", text: currentStateBinding($card.currentState, \.physical))
+                                }
+                                LabeledField("情绪") {
+                                    SoftTextField(title: "emotional", text: currentStateBinding($card.currentState, \.emotional))
+                                }
+                                LabeledField("目标") {
+                                    SoftTextField(title: "goal", text: currentStateBinding($card.currentState, \.goal))
+                                }
+                                LabeledField("摘要") {
+                                    SoftTextEditor(text: currentStateBinding($card.currentState, \.summary), minHeight: 74)
+                                }
                             }
-                            LabeledField("说话方式") {
+
+                            ContentBlock("说话方式", tone: .purple) {
                                 SoftTextEditor(text: $card.dialogueStyle, minHeight: 74)
                             }
-                            LabeledField("禁止行为") {
-                                SoftTextEditor(text: stringArrayBinding($card.forbiddenBehavior), minHeight: 74)
+
+                            ContentBlock("知道 / 不知道", tone: .blue) {
+                                knowledgeChips(for: card.name)
                             }
-                            LabeledField("上次出场章节") {
-                                SoftTextField(title: "例如 4", text: optionalIntBinding($card.lastActiveChapterNo))
+
+                            ContentBlock("禁止行为", tone: .red) {
+                                SoftTextEditor(text: stringArrayBinding($card.forbiddenBehavior), minHeight: 74)
                             }
 
                             VStack(alignment: .leading, spacing: 8) {
@@ -371,6 +399,23 @@ struct BaseFilesView: View {
         }
     }
 
+    private var worldBibleSectionIndices: [Int] {
+        store.worldBibleSections.indices.sorted { lhs, rhs in
+            worldBibleOrder(store.worldBibleSections[lhs]) < worldBibleOrder(store.worldBibleSections[rhs])
+        }
+    }
+
+    private func worldBibleOrder(_ section: WorldBibleSection) -> Int {
+        let key = (section.sectionKey ?? section.title).lowercased()
+        let order = ["premise", "world", "characters", "plot", "style", "rules", "open_threads"]
+        let fallback = store.worldBibleSections.firstIndex(where: { $0.id == section.id }) ?? 0
+        return order.firstIndex { key.contains($0) } ?? (100 + fallback)
+    }
+
+    private func worldBibleBadge(_ section: WorldBibleSection) -> String {
+        section.sectionKey?.isEmpty == false ? section.importance.displayName : "模板段 · \(section.importance.displayName)"
+    }
+
     private func tagsBinding(for section: Binding<WorldBibleSection>) -> Binding<String> {
         Binding {
             section.wrappedValue.tags.joined(separator: ", ")
@@ -399,6 +444,51 @@ struct BaseFilesView: View {
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
         }
+    }
+
+    private func currentStateBinding(
+        _ value: Binding<CharacterCurrentState>,
+        _ keyPath: WritableKeyPath<CharacterCurrentState, String>
+    ) -> Binding<String> {
+        Binding {
+            value.wrappedValue[keyPath: keyPath]
+        } set: { newValue in
+            value.wrappedValue[keyPath: keyPath] = newValue
+        }
+    }
+
+    private func knowledgeChips(for characterName: String) -> some View {
+        let facts = knowledgeFacts(for: characterName)
+        return FlowLayout {
+            ForEach(facts.known.prefix(6), id: \.self) { title in
+                EntityChip(text: "知道：\(title)", tone: .green)
+            }
+            ForEach(facts.hidden.prefix(6), id: \.self) { title in
+                EntityChip(text: "不知道：\(title)", tone: .neutral)
+            }
+            if facts.known.isEmpty && facts.hidden.isEmpty {
+                EntityChip(text: "暂无 KM 派生记录", tone: .neutral)
+            }
+        }
+    }
+
+    private func knowledgeFacts(for characterName: String) -> (known: [String], hidden: [String]) {
+        let name = characterName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return ([], []) }
+        var known: [String] = []
+        var hidden: [String] = []
+        for entry in knowledgeStore.entries {
+            guard let state = entry.visibility[name] else { continue }
+            switch state {
+            case .known, .stronglySuspects, .suspects, .hinted, .partial, .mayKnow:
+                known.append(entry.factTitle)
+            case .unknown, .readerUnknown, .authorOnly:
+                hidden.append(entry.factTitle)
+            case .readerKnown:
+                break
+            }
+        }
+        return (known, hidden)
     }
 
     private func optionalStringBinding(_ value: Binding<String?>) -> Binding<String> {

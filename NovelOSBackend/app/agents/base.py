@@ -22,7 +22,7 @@ class AgentResult:
     run_type: str = "workflow"
     error_message: str | None = None
     model: str | None = None
-    token_usage: dict[str, int] = field(default_factory=dict)
+    token_usage: dict[str, Any] = field(default_factory=dict)
 
 
 class BaseAgent(Protocol):

@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_session
 from app.models import KnowledgeMatrixEntryModel
-from app.schemas import KnowledgeMatrixEntry
+from app.schemas import KnowledgeMatrixEntry, KnowledgeMatrixEntryUpsert
 from app.services import require_novel
 
 router = APIRouter(prefix="/api/novels/{novel_id}/knowledge-matrix", tags=["knowledge-matrix"])
@@ -12,19 +12,22 @@ router = APIRouter(prefix="/api/novels/{novel_id}/knowledge-matrix", tags=["know
 
 def _visibility_from_entry_payload(payload: dict) -> dict:
     visibility = dict(payload.get("visibility") or {})
-    visibility.setdefault("author", payload.get("author_knowledge"))
-    visibility.setdefault("reader", payload.get("reader_knowledge"))
+    visibility.setdefault("author", payload.get("author_knowledge") or "known")
+    visibility.setdefault("reader", payload.get("reader_knowledge") or "reader_unknown")
     for item in payload.get("character_knowledge", []):
-        character_id = item.get("character_id")
-        if character_id:
-            visibility.setdefault(character_id, item.get("state"))
+        key = item.get("character_name") or item.get("character_id")
+        if key:
+            visibility.setdefault(key, item.get("state") or "unknown")
     return visibility
 
 
-def _storage_payload(entry: KnowledgeMatrixEntry) -> dict:
+def _storage_payload(entry: KnowledgeMatrixEntryUpsert) -> dict:
     payload = entry.model_dump(mode="json")
     payload["visibility"] = _visibility_from_entry_payload(payload)
     payload["fact"] = payload.get("fact") or payload.get("fact_title")
+    payload["author_knowledge"] = payload["visibility"].get("author", payload.get("author_knowledge", "known"))
+    payload["reader_knowledge"] = payload["visibility"].get("reader", payload.get("reader_knowledge", "reader_unknown"))
+    payload["character_knowledge"] = []
     if isinstance(payload.get("allowed_narration"), str):
         payload["allowed_narration"] = {"text": payload["allowed_narration"]}
     return payload
@@ -55,7 +58,7 @@ def get_entries(novel_id: str, session: Session = Depends(get_session)):
 @router.post("", response_model=KnowledgeMatrixEntry)
 def create_entry(
     novel_id: str,
-    entry: KnowledgeMatrixEntry,
+    entry: KnowledgeMatrixEntryUpsert,
     session: Session = Depends(get_session),
 ):
     require_novel(session, novel_id)
@@ -70,7 +73,7 @@ def create_entry(
 def update_entry(
     novel_id: str,
     entry_id: str,
-    entry: KnowledgeMatrixEntry,
+    entry: KnowledgeMatrixEntryUpsert,
     session: Session = Depends(get_session),
 ):
     require_novel(session, novel_id)

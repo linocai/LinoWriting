@@ -77,6 +77,7 @@ struct ChapterStudioView: View {
             .padding(AppTheme.pagePadding)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
+        .scrollIndicators(.visible)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AppBackgroundView())
     }
@@ -126,11 +127,20 @@ private struct ChapterStepCell: View {
         } label: {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
-                    Text("\(step.rawValue)")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(step == store.currentStep ? .white : numberColor)
-                        .frame(width: 24, height: 24)
-                        .background(numberBackground, in: Circle())
+                    ZStack {
+                        Circle()
+                            .fill(numberBackground)
+                        if isDone {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(Color.white)
+                        } else {
+                            Text("\(step.rawValue)")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(step == store.currentStep ? .white : numberColor)
+                        }
+                    }
+                    .frame(width: 24, height: 24)
                     Text(step.title)
                         .font(.system(size: 13, weight: .bold))
                         .lineLimit(1)
@@ -156,6 +166,9 @@ private struct ChapterStepCell: View {
         .buttonStyle(.plain)
         .disabled(!store.canMove(to: step))
         .onHover { isHovered = $0 }
+        .animation(AppTheme.Motion.easeOut, value: isHovered)
+        .animation(AppTheme.Motion.easeOut, value: store.currentStep)
+        .animation(AppTheme.Motion.easeOut, value: store.highestUnlockedStep)
     }
 
     private var isDone: Bool {
@@ -164,7 +177,7 @@ private struct ChapterStepCell: View {
 
     private var numberBackground: Color {
         if step == store.currentStep { return AppTheme.blue }
-        if isDone { return AppTheme.green.opacity(0.16) }
+        if isDone { return AppTheme.green }
         return Color.black.opacity(0.05)
     }
 
@@ -174,7 +187,7 @@ private struct ChapterStepCell: View {
 
     private var stepBackground: Color {
         if step == store.currentStep { return Color.white.opacity(0.94) }
-        if isDone { return AppTheme.green.opacity(0.08) }
+        if isDone { return AppTheme.green.opacity(0.10) }
         if isHovered { return Color.white.opacity(0.60) }
         return Color.clear
     }

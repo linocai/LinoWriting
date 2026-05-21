@@ -61,6 +61,74 @@ import Foundation
 }
 
 @MainActor
+@Test func streamingDraftGenerationUpdatesStoreAndAgentRuns() async throws {
+    let store = ChapterWorkflowStore(api: MockChapterWorkflowAPI())
+
+    await store.generateStructuredPrompt()
+    await store.approveStructuredPromptAndGenerateDraft()
+
+    #expect(store.currentStep == .draftReview)
+    #expect(store.draft?.id == MockData.draft.id)
+    #expect(store.streamedWordCount > 0)
+    #expect(store.agentRuns.contains(where: { $0.agentName == "正文检查" || $0.agentName == "Writing Agent" }))
+}
+
+@MainActor
+@Test func streamingDraftGenerationFallsBackToSync() async throws {
+    let api = StreamFailingChapterWorkflowAPI()
+    let store = ChapterWorkflowStore(api: api)
+
+    await store.generateStructuredPrompt()
+    await store.approveStructuredPromptAndGenerateDraft()
+
+    #expect(await api.syncGenerateCalls() == 1)
+    #expect(store.draft?.id == MockData.draft.id)
+    #expect(store.error == nil)
+}
+
+@MainActor
+@Test func chapterStepGuardRejectsLockedStep() async throws {
+    let store = ChapterWorkflowStore(api: MockChapterWorkflowAPI())
+
+    #expect(store.currentStep == .promptInput)
+    store.tryMove(to: .draftReview)
+    #expect(store.currentStep == .promptInput)
+    #expect(store.statusMessage == "当前步骤尚未就绪。")
+
+    await store.generateStructuredPrompt()
+    #expect(store.currentStep == .structuredPromptReview)
+    store.tryMove(to: .draftReview)
+    #expect(store.currentStep == .structuredPromptReview)
+
+    store.tryMove(to: .promptInput)
+    #expect(store.currentStep == .promptInput)
+}
+
+@MainActor
+@Test func revisionRunningStateTracksDelayedRevision() async throws {
+    let api = DelayedReviewChapterWorkflowAPI(delayNanoseconds: 120_000_000)
+    let store = ChapterWorkflowStore(api: api)
+
+    await store.generateStructuredPrompt()
+    await store.approveStructuredPromptAndGenerateDraft()
+    store.reviewFeedback = "请让 B 更克制，压缩解释。"
+
+    let task = Task { @MainActor in
+        await store.requestRevision()
+    }
+    try await Task.sleep(nanoseconds: 30_000_000)
+
+    #expect(store.isRevisionRunning)
+    #expect(store.isLoading)
+
+    await task.value
+    #expect(!store.isRevisionRunning)
+    #expect(!store.isLoading)
+    #expect(store.currentStep == .draftReview)
+    #expect(store.draft?.versionNo == MockData.draft.versionNo + 1)
+}
+
+@MainActor
 @Test func chapterStoreLoadsReadableImportedChapters() async throws {
     let store = ChapterWorkflowStore(api: MockChapterWorkflowAPI())
 
@@ -69,6 +137,22 @@ import Foundation
     #expect(store.chapters.map(\.chapterNo) == [1, 2, 3, 4])
     #expect(store.chapterDrafts["chapter_001"]?.text.contains("没有署名的邮件") == true)
     #expect(store.selectedReadableChapterID == "chapter_001")
+}
+
+@MainActor
+@Test func completedChapterReloadsCanonPatchAndPromptArtifacts() async throws {
+    let store = ChapterWorkflowStore(api: MockChapterWorkflowAPI())
+    var completed = MockData.chapter
+    completed.status = .completed
+    completed.currentVersionId = MockData.draft.id
+
+    await store.switchToNovel(MockData.novel, chapters: MockData.importedChapters + [completed])
+
+    #expect(store.currentStep == .canonPatchReview)
+    #expect(store.highestUnlockedStep == .canonPatchReview)
+    #expect(store.structuredPrompt?.id == MockData.structuredPrompt.id)
+    #expect(store.canonPatch?.id == MockData.canonPatch.id)
+    #expect(store.agentRuns.isEmpty == false)
 }
 
 @Test func codableFixturesDecode() throws {
@@ -169,6 +253,11 @@ import Foundation
     #expect(providerJSON.contains("api_key"))
 }
 
+@Test func workspaceTitlesUseWeekTwoNaming() throws {
+    #expect(Workspace.knowledgeMatrix.title == "Knowledge Matrix")
+    #expect(Workspace.versionsDebug.title == "本章流程日志")
+}
+
 @Test func apiErrorTranslatesBackendDetails() throws {
     let llmError = APIError.httpStatus(
         502,
@@ -178,6 +267,12 @@ import Foundation
 
     let conflict = APIError.httpStatus(409, #"{"detail":"Draft has S0 audit issues"}"#)
     #expect(conflict.userMessage == "当前状态不能继续：Draft has S0 audit issues")
+
+    let envelope = APIError.httpStatus(
+        409,
+        #"{"error":{"kind":"workflow","message":"不能从 draftInput 跳到 completed","retryable":false}}"#
+    )
+    #expect(envelope.userMessage == "当前状态不能继续：不能从 draftInput 跳到 completed")
 }
 
 @Test func novelLibraryEndpointsConstructExpectedRequests() throws {
@@ -294,7 +389,7 @@ import Foundation
     let characterID = try #require(store.characterCards.last?.id)
     store.characterCards[store.characterCards.count - 1].name = "测试人物"
     store.addRelationship(to: characterID)
-    store.characterCards[store.characterCards.count - 1].currentState = "测试人物状态"
+    store.characterCards[store.characterCards.count - 1].currentState.summary = "测试人物状态"
     let factID = try #require(store.memoryFacts.last?.id)
     store.memoryFacts[store.memoryFacts.count - 1].summary = "测试事实"
     await store.saveChanges()
@@ -325,9 +420,9 @@ import Foundation
 
     let character = try await api.createCharacterCard(MockData.characterCards[0], novelID: novelID)
     var updatedCharacter = character
-    updatedCharacter.currentState = "已更新"
+    updatedCharacter.currentState.summary = "已更新"
     _ = try await api.updateCharacterCard(updatedCharacter, novelID: novelID)
-    #expect(try await api.getCharacterCards(novelID: novelID).first?.currentState == "已更新")
+    #expect(try await api.getCharacterCards(novelID: novelID).first?.currentState.summary == "已更新")
 
     let fact = try await api.createMemoryFact(MockData.memoryFacts[0], novelID: novelID)
     var updatedFact = fact
@@ -365,6 +460,14 @@ import Foundation
     let memoryDelete = Endpoint.deleteMemoryFact(novelID: novelID, factID: "mem_001")
     #expect(memoryDelete.method == .delete)
     #expect(memoryDelete.path == "/api/novels/novel_001/memory/mem_001")
+
+    let stream = Endpoint.generateDraftStream(chapterID: "chapter_004")
+    #expect(stream.method == .post)
+    #expect(stream.path == "/api/chapters/chapter_004/draft/generate/stream")
+    #expect(stream.headers["Accept"] == "text/event-stream")
+
+    let runs = Endpoint.getAgentRuns(chapterID: "chapter_004")
+    #expect(runs.path == "/api/chapters/chapter_004/agent-runs")
 }
 
 @Test func debugExportPayloadEncodesExpectedResources() throws {
@@ -406,6 +509,90 @@ import Foundation
     #expect(memory[0].canonStatus == "confirmed")
 }
 
+@Test func expandedAgentRunDecodesBackendDebugFields() throws {
+    let json = """
+    {
+      "id": "run_1",
+      "novel_id": "novel_001",
+      "chapter_id": "chapter_004",
+      "agent_name": "Writing Agent",
+      "run_type": "draft",
+      "model": "mock",
+      "summary": "done",
+      "status": "draft_generated",
+      "payload": {"draft_id": "draft_004_v3"},
+      "input_payload": {"stream": true},
+      "output_payload": {"word_count": 3000},
+      "input_json": {},
+      "output_json": {},
+      "token_usage": {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3, "model": "mock"},
+      "started_at": 800000000.0,
+      "completed_at": "2026-05-21T06:00:00Z",
+      "latency_ms": 123.4,
+      "created_at": 800000000.0
+    }
+    """
+    let run = try APIJSONCoding.makeDecoder().decode(AgentRun.self, from: Data(json.utf8))
+    #expect(run.agentName == "Writing Agent")
+    #expect(run.inputPayload["stream"]?.displayString == "true")
+    #expect(run.tokenUsage["total_tokens"]?.displayString == "3")
+    #expect(run.latencyMs == 123.4)
+}
+
+@Test func characterCurrentStateDecodesLegacyAndStructuredForms() throws {
+    let legacy = """
+    [{
+      "id": "char_test",
+      "name": "A",
+      "aliases": [],
+      "role": "主角",
+      "stable_traits": [],
+      "current_state": "正在调查旧案。",
+      "dialogue_style": "短句。",
+      "relationships": [],
+      "forbidden_behavior": [],
+      "canon_version": 1
+    }]
+    """
+    let legacyCards = try APIJSONCoding.makeDecoder().decode([CharacterCard].self, from: Data(legacy.utf8))
+    #expect(legacyCards[0].currentState.summary == "正在调查旧案。")
+
+    let structured = """
+    [{
+      "id": "char_test",
+      "name": "A",
+      "aliases": [],
+      "role": "主角",
+      "stable_traits": [],
+      "current_state": {"physical": "疲惫", "emotional": "警觉", "goal": "查明线索", "summary": "保持克制。"},
+      "dialogue_style": "短句。",
+      "relationships": [],
+      "forbidden_behavior": [],
+      "canon_version": 1
+    }]
+    """
+    let structuredCards = try APIJSONCoding.makeDecoder().decode([CharacterCard].self, from: Data(structured.utf8))
+    #expect(structuredCards[0].currentState.physical == "疲惫")
+    #expect(structuredCards[0].currentState.goal == "查明线索")
+}
+
+@Test func worldBibleSectionKeyDecodesAndCommandKIsAbsent() throws {
+    let sectionJSON = """
+    [{"id":"wb_style","section_key":"tone_and_style","title":"基调","content":"冷感","tags":[],"importance":"high","activation_policy":"always_in_context_brief","canon_version":1,"updated_at":800000000}]
+    """
+    let sections = try APIJSONCoding.makeDecoder().decode([WorldBibleSection].self, from: Data(sectionJSON.utf8))
+    #expect(sections[0].sectionKey == "tone_and_style")
+
+    let packageRoot = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    let rootShell = packageRoot.appendingPathComponent("Sources/NovelOSMac/Views/RootShellView.swift")
+    let source = try String(contentsOf: rootShell, encoding: .utf8)
+    #expect(!source.contains("⌘K"))
+    #expect(!source.contains("命令面板"))
+}
+
 @Test func liveBaseDocumentsDecodeStructuredBackendFields() throws {
     let charactersJSON = """
     [
@@ -425,7 +612,7 @@ import Foundation
     ]
     """
     let characters = try APIJSONCoding.makeDecoder().decode([CharacterCard].self, from: Data(charactersJSON.utf8))
-    #expect(characters[0].currentState == "正在调查旧案。")
+    #expect(characters[0].currentState.summary == "正在调查旧案。")
     #expect(characters[0].dialogueStyle == "短句。")
 
     let matrixJSON = """
@@ -436,7 +623,9 @@ import Foundation
         "truth_status": "author_only",
         "author_knowledge": "known",
         "reader_knowledge": "hinted",
-        "character_knowledge": [],
+        "character_knowledge": [
+          {"character_id": "char_A", "character_name": "A", "state": "suspects"}
+        ],
         "allowed_narration": {"text": "只能写怀疑，不能确认。"},
         "canon_version": 1
       }
@@ -444,6 +633,7 @@ import Foundation
     """
     let entries = try APIJSONCoding.makeDecoder().decode([KnowledgeMatrixEntry].self, from: Data(matrixJSON.utf8))
     #expect(entries[0].allowedNarration == "只能写怀疑，不能确认。")
+    #expect(entries[0].visibility["A"] == .suspects)
 }
 
 @MainActor
@@ -464,6 +654,7 @@ import Foundation
     await store.addEntry()
     let createdID = try #require(store.selectedEntryID)
     store.updateCharacterState(entryID: createdID, characterName: "A", state: .known)
+    #expect(store.entries.last?.visibility["A"] == .known)
     store.entries[store.entries.count - 1].allowedNarration = "测试允许叙述"
     await store.saveMatrix()
     #expect(store.statusMessage == "Knowledge Matrix 已保存。")
@@ -502,7 +693,8 @@ import Foundation
     #expect(post.path == "/api/novels/novel_001/knowledge-matrix")
     let postJSON = String(data: try #require(post.body), encoding: .utf8) ?? ""
     #expect(postJSON.contains("fact_title"))
-    #expect(postJSON.contains("character_knowledge"))
+    #expect(postJSON.contains("visibility"))
+    #expect(!postJSON.contains("character_knowledge"))
     #expect(postJSON.contains("allowed_narration"))
 
     let patch = try Endpoint.updateKnowledgeMatrixEntry(novelID: novelID, entry: MockData.knowledgeEntries[0])
@@ -521,8 +713,53 @@ import Foundation
     #expect(entries[0].factTitle == "B 与旧案有关")
     #expect(entries[0].authorKnowledge == .known)
     #expect(entries[0].readerKnowledge == .hinted)
-    #expect(entries[0].characterKnowledge.first(where: { $0.characterName == "A" })?.state == .suspects)
+    #expect(entries[0].visibility["A"] == .suspects)
     #expect(entries[0].allowedNarration.contains("不能确认"))
+}
+
+@Test func knowledgeMatrixVisibilityDictEncodesAndDecodes() throws {
+    let json = """
+    [
+      {
+        "id": "km_001",
+        "fact_title": "B 与旧案有关",
+        "truth_status": "confirmed_author_only",
+        "author_knowledge": "known",
+        "reader_knowledge": "hinted",
+        "visibility": {"A": "suspects", "B": "known"},
+        "allowed_narration": "只能写怀疑。",
+        "canon_version": 12
+      }
+    ]
+    """
+    let entries = try APIJSONCoding.makeDecoder().decode([KnowledgeMatrixEntry].self, from: Data(json.utf8))
+    #expect(entries[0].visibility["A"] == .suspects)
+
+    let encoded = String(data: try APIJSONCoding.makeEncoder().encode(entries[0]), encoding: .utf8) ?? ""
+    #expect(encoded.contains("visibility"))
+    #expect(!encoded.contains("character_knowledge"))
+}
+
+@MainActor
+@Test func knowledgeMatrixLoadIfNeededCoalescesAndInvalidates() async throws {
+    let api = CountingKnowledgeMatrixAPI(entries: MockData.knowledgeEntries)
+    let store = KnowledgeMatrixStore(api: api)
+
+    async let one: Void = store.loadIfNeeded()
+    async let two: Void = store.loadIfNeeded()
+    async let three: Void = store.loadIfNeeded()
+    async let four: Void = store.loadIfNeeded()
+    async let five: Void = store.loadIfNeeded()
+    _ = await (one, two, three, four, five)
+
+    #expect(await api.requestCount() == 1)
+
+    await store.loadIfNeeded()
+    #expect(await api.requestCount() == 1)
+
+    store.invalidate()
+    await store.loadIfNeeded()
+    #expect(await api.requestCount() == 2)
 }
 
 private func decodeFixture<T: Decodable>(_ name: String, as type: T.Type) throws -> T {
@@ -540,4 +777,172 @@ private func decodeLiveFixture<T: Decodable>(_ name: String, as type: T.Type) th
 private func decodeBody<T: Decodable>(_ endpoint: Endpoint, as type: T.Type) throws -> T {
     let body = try #require(endpoint.body)
     return try APIJSONCoding.makeDecoder().decode(T.self, from: body)
+}
+
+private actor CountingKnowledgeMatrixAPI: KnowledgeMatrixAPI {
+    private var entries: [KnowledgeMatrixEntry]
+    private var count = 0
+
+    init(entries: [KnowledgeMatrixEntry]) {
+        self.entries = entries
+    }
+
+    func requestCount() -> Int {
+        count
+    }
+
+    func getKnowledgeMatrixEntries(novelID: String) async throws -> [KnowledgeMatrixEntry] {
+        count += 1
+        try await Task.sleep(nanoseconds: 20_000_000)
+        return entries
+    }
+
+    func createKnowledgeMatrixEntry(_ entry: KnowledgeMatrixEntry, novelID: String) async throws -> KnowledgeMatrixEntry {
+        entries.append(entry)
+        return entry
+    }
+
+    func updateKnowledgeMatrixEntry(_ entry: KnowledgeMatrixEntry, novelID: String) async throws -> KnowledgeMatrixEntry {
+        guard let index = entries.firstIndex(where: { $0.id == entry.id }) else {
+            throw APIError.missingResource("knowledge matrix entry \(entry.id)")
+        }
+        entries[index] = entry
+        return entry
+    }
+
+    func deleteKnowledgeMatrixEntry(entryID: String, novelID: String) async throws {
+        entries.removeAll { $0.id == entryID }
+    }
+}
+
+private actor DelayedReviewChapterWorkflowAPI: ChapterWorkflowAPI {
+    private let base = MockChapterWorkflowAPI()
+    private let delayNanoseconds: UInt64
+
+    init(delayNanoseconds: UInt64) {
+        self.delayNanoseconds = delayNanoseconds
+    }
+
+    func listChapters(novelID: String) async throws -> [Chapter] {
+        try await base.listChapters(novelID: novelID)
+    }
+
+    func submitUserPrompt(chapterID: String, prompt: String) async throws {
+        try await base.submitUserPrompt(chapterID: chapterID, prompt: prompt)
+    }
+
+    func getStructuredPrompt(chapterID: String) async throws -> StructuredPrompt {
+        try await base.getStructuredPrompt(chapterID: chapterID)
+    }
+
+    func updateStructuredPrompt(_ prompt: StructuredPrompt, chapterID: String) async throws -> StructuredPrompt {
+        try await base.updateStructuredPrompt(prompt, chapterID: chapterID)
+    }
+
+    func approveStructuredPrompt(chapterID: String) async throws {
+        try await base.approveStructuredPrompt(chapterID: chapterID)
+    }
+
+    func generateDraft(chapterID: String) async throws {
+        try await base.generateDraft(chapterID: chapterID)
+    }
+
+    func generateDraftStream(chapterID: String, onEvent: @MainActor @Sendable @escaping (DraftStreamEvent) async -> Void) async throws {
+        try await base.generateDraftStream(chapterID: chapterID, onEvent: onEvent)
+    }
+
+    func getLatestDraft(chapterID: String) async throws -> Draft {
+        try await base.getLatestDraft(chapterID: chapterID)
+    }
+
+    func getAgentRuns(chapterID: String) async throws -> [AgentRun] {
+        try await base.getAgentRuns(chapterID: chapterID)
+    }
+
+    func reviewDraft(chapterID: String, request: DraftReviewRequest) async throws {
+        try await Task.sleep(nanoseconds: delayNanoseconds)
+        try await base.reviewDraft(chapterID: chapterID, request: request)
+    }
+
+    func approveFinalText(chapterID: String) async throws {
+        try await base.approveFinalText(chapterID: chapterID)
+    }
+
+    func getCanonUpdatePatch(chapterID: String) async throws -> CanonUpdatePatch {
+        try await base.getCanonUpdatePatch(chapterID: chapterID)
+    }
+
+    func updateCanonUpdatePatch(_ patch: CanonUpdatePatch, chapterID: String) async throws -> CanonUpdatePatch {
+        try await base.updateCanonUpdatePatch(patch, chapterID: chapterID)
+    }
+
+    func confirmCanonUpdatePatch(chapterID: String) async throws {
+        try await base.confirmCanonUpdatePatch(chapterID: chapterID)
+    }
+}
+
+private actor StreamFailingChapterWorkflowAPI: ChapterWorkflowAPI {
+    private let base = MockChapterWorkflowAPI()
+    private var syncCount = 0
+
+    func syncGenerateCalls() -> Int {
+        syncCount
+    }
+
+    func listChapters(novelID: String) async throws -> [Chapter] {
+        try await base.listChapters(novelID: novelID)
+    }
+
+    func submitUserPrompt(chapterID: String, prompt: String) async throws {
+        try await base.submitUserPrompt(chapterID: chapterID, prompt: prompt)
+    }
+
+    func getStructuredPrompt(chapterID: String) async throws -> StructuredPrompt {
+        try await base.getStructuredPrompt(chapterID: chapterID)
+    }
+
+    func updateStructuredPrompt(_ prompt: StructuredPrompt, chapterID: String) async throws -> StructuredPrompt {
+        try await base.updateStructuredPrompt(prompt, chapterID: chapterID)
+    }
+
+    func approveStructuredPrompt(chapterID: String) async throws {
+        try await base.approveStructuredPrompt(chapterID: chapterID)
+    }
+
+    func generateDraft(chapterID: String) async throws {
+        syncCount += 1
+        try await base.generateDraft(chapterID: chapterID)
+    }
+
+    func generateDraftStream(chapterID: String, onEvent: @MainActor @Sendable @escaping (DraftStreamEvent) async -> Void) async throws {
+        throw APIError.transport("stream unavailable")
+    }
+
+    func getLatestDraft(chapterID: String) async throws -> Draft {
+        try await base.getLatestDraft(chapterID: chapterID)
+    }
+
+    func getAgentRuns(chapterID: String) async throws -> [AgentRun] {
+        try await base.getAgentRuns(chapterID: chapterID)
+    }
+
+    func reviewDraft(chapterID: String, request: DraftReviewRequest) async throws {
+        try await base.reviewDraft(chapterID: chapterID, request: request)
+    }
+
+    func approveFinalText(chapterID: String) async throws {
+        try await base.approveFinalText(chapterID: chapterID)
+    }
+
+    func getCanonUpdatePatch(chapterID: String) async throws -> CanonUpdatePatch {
+        try await base.getCanonUpdatePatch(chapterID: chapterID)
+    }
+
+    func updateCanonUpdatePatch(_ patch: CanonUpdatePatch, chapterID: String) async throws -> CanonUpdatePatch {
+        try await base.updateCanonUpdatePatch(patch, chapterID: chapterID)
+    }
+
+    func confirmCanonUpdatePatch(chapterID: String) async throws {
+        try await base.confirmCanonUpdatePatch(chapterID: chapterID)
+    }
 }

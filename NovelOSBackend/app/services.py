@@ -14,8 +14,8 @@ from sqlalchemy.orm import Session
 from app import config, mock_data
 from app.agents.base import AgentResult
 from app.agents.safety import highest_severity, summary_passed
-from app.errors import llm_error_detail
-from app.llm.gateway import LLMGatewayError
+from app.errors import WorkflowStateError, llm_error_detail
+from app.llm.gateway import LLMGatewayError, make_llm_gateway
 from app.models import (
     AgentRunModel,
     AuditReportModel,
@@ -43,6 +43,29 @@ def apple_timestamp_now() -> float:
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+ALLOWED_CHAPTER_TRANSITIONS: dict[str, set[str]] = {
+    "draftInput": {"structuredPromptReady"},
+    "structuredPromptReady": {"structuredPromptReady", "structuredPromptApproved"},
+    "structuredPromptApproved": {"structuredPromptReady", "draftGenerated"},
+    "draftGenerated": {"revisionRequired", "draftApproved"},
+    "revisionRequired": {"revisionRequired", "draftApproved"},
+    "draftApproved": {"canonPatchPending"},
+    "canonPatchPending": {"completed"},
+    "completed": set(),
+}
+
+
+def transition_chapter(chapter: ChapterModel, target_status: str, *, force: bool = False) -> None:
+    current = chapter.status
+    if force or current == target_status:
+        chapter.status = target_status
+        return
+    allowed = ALLOWED_CHAPTER_TRANSITIONS.get(current, set())
+    if target_status not in allowed:
+        raise WorkflowStateError(f"请先完成上一步：无法从 {current} 跳到 {target_status}。")
+    chapter.status = target_status
 
 
 def require_novel(session: Session, novel_id: str) -> NovelModel:
@@ -259,7 +282,7 @@ def import_first_three_chapters(
             session.add(chapter)
         else:
             chapter.title = chapter_payload.get("title") or chapter.title
-            chapter.status = "completed"
+            transition_chapter(chapter, "completed", force=True)
             chapter.target_word_count = max(chapter.target_word_count, word_count)
             chapter.canon_version_used = chapter.canon_version_used or canon_version
 
@@ -423,11 +446,7 @@ def apply_bootstrap_canon_analysis(session: Session, novel: NovelModel, analysis
 
     for item in _dict_items(analysis.get("knowledge_matrix")):
         fact_title = _text(item.get("fact_title") or item.get("title")) or "未命名知识条目"
-        character_knowledge = []
-        visibility = {
-            "author": _knowledge_state(item.get("author_knowledge"), "known"),
-            "reader": _knowledge_state(item.get("reader_knowledge"), "reader_unknown"),
-        }
+        visibility = _visibility_from_knowledge_item(item)
         for rel in _dict_items(item.get("character_knowledge")):
             character_name = _text(rel.get("character_name") or rel.get("name"))
             character_id = _text(rel.get("character_id")) or character_id_by_name.get(character_name)
@@ -437,14 +456,8 @@ def apply_bootstrap_canon_analysis(session: Session, novel: NovelModel, analysis
                 character_id = _stable_doc_id(novel.id, "char", character_name)
             if character_id and character_name:
                 state = _knowledge_state(rel.get("state"), "unknown")
-                visibility[character_id] = state
-                character_knowledge.append(
-                    {
-                        "character_id": character_id,
-                        "character_name": character_name,
-                        "state": state,
-                    }
-                )
+                visibility.setdefault(character_name, state)
+                visibility.setdefault(character_id, state)
         payload = {
             "id": _text(item.get("id")) or _stable_doc_id(novel.id, "km", fact_title),
             "novel_id": novel.id,
@@ -453,7 +466,7 @@ def apply_bootstrap_canon_analysis(session: Session, novel: NovelModel, analysis
             "truth_status": _text(item.get("truth_status"), "confirmed"),
             "author_knowledge": visibility["author"],
             "reader_knowledge": visibility["reader"],
-            "character_knowledge": character_knowledge,
+            "character_knowledge": [],
             "visibility": visibility,
             "allowed_narration": _summary_dict(item.get("allowed_narration")),
             "canon_version": canon_version,
@@ -536,6 +549,17 @@ def _summary_dict(value: object) -> dict:
     if isinstance(value, dict):
         return dict(value)
     return {"summary": _text(value)}
+
+
+def _visibility_from_knowledge_item(item: dict) -> dict[str, str]:
+    visibility = {
+        str(key): _knowledge_state(value, "unknown")
+        for key, value in _plain_dict(item.get("visibility")).items()
+        if str(key)
+    }
+    visibility.setdefault("author", _knowledge_state(item.get("author_knowledge"), "known"))
+    visibility.setdefault("reader", _knowledge_state(item.get("reader_knowledge"), "reader_unknown"))
+    return visibility
 
 
 def _choice(value: object, allowed: set[str], default: str) -> str:
@@ -668,7 +692,7 @@ def build_context_pack(session: Session, chapter: ChapterModel) -> dict:
     for entry in knowledge_entries:
         narration = entry.allowed_narration
         if isinstance(narration, dict):
-            text = narration.get("text")
+            text = narration.get("text") or narration.get("summary")
         else:
             text = str(narration)
         if text:
@@ -782,9 +806,19 @@ def record_agent_result(
         payload=result.payload,
         input_payload=input_payload,
         output_payload=result.payload,
-        token_usage=result.token_usage or {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        token_usage=normalize_token_usage(result.token_usage, result.model or "mock"),
         error_message=result.error_message,
     )
+
+
+def normalize_token_usage(token_usage: dict | None, model: str | None) -> dict:
+    usage = dict(token_usage or {})
+    return {
+        "prompt_tokens": int(usage.get("prompt_tokens", 0) or 0),
+        "completion_tokens": int(usage.get("completion_tokens", 0) or 0),
+        "total_tokens": int(usage.get("total_tokens", 0) or 0),
+        "model": usage.get("model") or model or "mock",
+    }
 
 
 def fail_agent_run(
@@ -809,14 +843,16 @@ def fail_agent_run(
         model=config.active_llm_provider().model if config.active_llm_provider() else config.openai_compatible_model(),
         summary=detail,
         status="failed",
-        payload={"retryable": True},
+        payload={"retryable": getattr(error, "retryable", True), "kind": getattr(error, "kind", "llm")},
         input_payload=input_payload or {},
         output_payload={},
-        token_usage={},
+        token_usage=normalize_token_usage({}, config.active_llm_provider().model if config.active_llm_provider() else config.openai_compatible_model()),
         error_message=detail,
     )
     session.commit()
-    raise HTTPException(status_code=502, detail=detail)
+    if hasattr(error, "with_agent_run"):
+        raise error.with_agent_run(run_id)
+    raise error
 
 
 def run_prompt_pipeline(session: Session, chapter: ChapterModel, prompt: str) -> dict:
@@ -843,7 +879,7 @@ def run_prompt_pipeline(session: Session, chapter: ChapterModel, prompt: str) ->
         )
     structured_prompt = dict(results[-1].payload)
     chapter.structured_prompt = structured_prompt
-    chapter.status = "structuredPromptReady"
+    transition_chapter(chapter, "structuredPromptReady")
 
     structured_row = _upsert_structured_prompt(session, chapter, structured_prompt, status="ready_for_review")
     now = apple_timestamp_now()
@@ -1085,6 +1121,53 @@ def ensure_initial_draft(session: Session, chapter: ChapterModel) -> DraftModel:
     return draft
 
 
+def _draft_version_for_new_generation(session: Session, chapter_id: str) -> int:
+    current = latest_draft(session, chapter_id)
+    return (current.version_no + 1) if current is not None else 1
+
+
+def _writing_prompt_payload(chapter: ChapterModel, structured_prompt: dict, context_payload: dict) -> dict:
+    target_word_count = getattr(chapter, "target_word_count", 3000)
+    return {
+        "prompt": (
+            f"目标字数：约 {target_word_count} 字。\n\n"
+            f"结构化 Prompt：{structured_prompt}\n\n"
+            f"Context Pack：{context_payload}\n\n"
+            "请直接输出正文，不要附加解释。"
+        ),
+        "system": (
+            "你是长篇小说正文写作 Agent。必须遵守 Context Pack 的人物白名单、"
+            "知识边界和结构化 Prompt。不要新增命名角色，不要提前泄露真相。"
+            "如人物处于校园或未成年人语境，只能写非露骨的情绪、关系和边界试探，"
+            "不得描写性行为、露骨性细节或成人化凝视。"
+        ),
+        "metadata": {"agent": "Writing Agent", "chapter_id": chapter.id},
+        "structured_prompt": structured_prompt,
+        "context_payload": context_payload,
+    }
+
+
+def auto_revise_s0_issues(
+    session: Session,
+    chapter: ChapterModel,
+    draft: DraftModel,
+    *,
+    max_attempts: int = 2,
+) -> DraftModel:
+    current = draft
+    for attempt in range(max_attempts):
+        if not audit_summary_has_s0(current):
+            return current
+        issue_count = int((current.audit_summary or {}).get("s0_count", 0) or 0)
+        current = create_revision(
+            session,
+            chapter,
+            f"自动修复 Audit S0：当前版本有 {issue_count} 个硬性风险。"
+            "请只修复非法专名、知识越界或连续性硬错误，不改变已批准的章节目标。",
+        )
+    return current
+
+
 def run_writing_agent(session: Session, chapter: ChapterModel) -> DraftModel:
     context_pack = latest_context_pack(session, chapter.id)
     context_payload = context_pack.payload if context_pack else build_context_pack(session, chapter)
@@ -1132,7 +1215,7 @@ def run_writing_agent(session: Session, chapter: ChapterModel) -> DraftModel:
             chapter_id=chapter.id,
             draft=draft,
         )
-    chapter.status = "draftGenerated"
+    transition_chapter(chapter, "draftGenerated")
     chapter.current_version_id = draft.id
     record_agent_result(
         session,
@@ -1143,7 +1226,152 @@ def run_writing_agent(session: Session, chapter: ChapterModel) -> DraftModel:
         input_payload={"structured_prompt_id": (chapter.structured_prompt or {}).get("id")},
     )
     run_audit_pipeline(session, chapter, draft, timestamp_prefix="12:09")
-    return draft
+    return auto_revise_s0_issues(session, chapter, draft)
+
+
+def stream_writing_agent_events(session: Session, chapter: ChapterModel):
+    context_pack = latest_context_pack(session, chapter.id)
+    context_payload = context_pack.payload if context_pack else build_context_pack(session, chapter)
+    structured_prompt = ensure_structured_prompt(session, chapter)
+    prompt_payload = _writing_prompt_payload(chapter, structured_prompt, context_payload)
+    version_no = _draft_version_for_new_generation(session, chapter.id)
+    draft_id = f"{chapter.id}_draft_v{version_no}"
+    run_id = f"{chapter.id}_writing_agent_v{version_no}"
+    started_at = apple_timestamp_now()
+    chunks: list[str] = []
+    token_usage: dict = {}
+    model = "mock"
+
+    try:
+        if config.llm_mode() == "live":
+            stream = make_llm_gateway().stream_text(
+                prompt_payload["prompt"],
+                system=prompt_payload["system"],
+                metadata=prompt_payload["metadata"],
+            )
+            for chunk in stream:
+                if chunk.model:
+                    model = chunk.model
+                if chunk.token_usage:
+                    token_usage = chunk.token_usage
+                if not chunk.content:
+                    continue
+                chunks.append(chunk.content)
+                text_so_far = "".join(chunks)
+                yield {"event": "delta", "delta": chunk.content}
+                yield {"event": "word_count", "word_count": len(text_so_far)}
+        else:
+            model = "mock"
+            for start in range(0, len(mock_data.DRAFT_TEXT), 180):
+                piece = mock_data.DRAFT_TEXT[start : start + 180]
+                chunks.append(piece)
+                text_so_far = "".join(chunks)
+                yield {"event": "delta", "delta": piece}
+                yield {"event": "word_count", "word_count": len(text_so_far)}
+            token_usage = normalize_token_usage({}, "mock")
+
+        text = "".join(chunks).strip()
+        if not text:
+            raise LLMGatewayError("Writing Agent returned an empty draft.", retryable=True)
+
+        draft = DraftModel(
+            id=draft_id,
+            chapter_id=chapter.id,
+            version_no=version_no,
+            text=text,
+            word_count=len(text),
+            audit_summary=None,
+            source="stream_generation",
+            created_at=apple_timestamp_now(),
+        )
+        session.add(draft)
+        session.flush()
+        transition_chapter(chapter, "draftGenerated")
+        chapter.current_version_id = draft.id
+        result = AgentResult(
+            agent_name="Writing Agent",
+            run_type="draft",
+            summary=f"流式生成正文 v{draft.version_no}，字数 {draft.word_count}。",
+            status="draft_generated",
+            payload={"draft_id": draft.id, "version_no": draft.version_no, "word_count": draft.word_count},
+            model=model,
+            token_usage=token_usage,
+        )
+        record_agent_result(
+            session,
+            run_id=run_id,
+            novel_id=chapter.novel_id,
+            chapter_id=chapter.id,
+            result=result,
+            input_payload={
+                "structured_prompt": structured_prompt,
+                "context_payload": context_payload,
+                "stream": True,
+            },
+        )
+        yield {"event": "draft_id", "draft_id": draft.id, "version_no": draft.version_no}
+        yield {"event": "tokens", "tokens": normalize_token_usage(token_usage, model)}
+        run_audit_pipeline(session, chapter, draft, timestamp_prefix="12:09")
+        final_draft = auto_revise_s0_issues(session, chapter, draft)
+        session.commit()
+        yield {
+            "event": "done",
+            "draft_id": final_draft.id,
+            "word_count": final_draft.word_count,
+            "version_no": final_draft.version_no,
+        }
+    except Exception as exc:
+        partial_text = "".join(chunks).strip()
+        if partial_text and session.get(DraftModel, draft_id) is None:
+            session.add(
+                DraftModel(
+                    id=draft_id,
+                    chapter_id=chapter.id,
+                    version_no=version_no,
+                    text=partial_text,
+                    word_count=len(partial_text),
+                    audit_summary=None,
+                    source="partial_stream_failure",
+                    created_at=apple_timestamp_now(),
+                )
+            )
+            chapter.current_version_id = draft_id
+        detail = llm_error_detail(exc)
+        upsert_agent_run(
+            session,
+            run_id=f"{run_id}_failed",
+            novel_id=chapter.novel_id,
+            chapter_id=chapter.id,
+            agent_name="Writing Agent",
+            run_type="draft",
+            model=model,
+            summary=detail,
+            status="failed",
+            payload={
+                "retryable": getattr(exc, "retryable", True),
+                "kind": getattr(exc, "kind", "llm"),
+                "partial_word_count": len(partial_text),
+            },
+            input_payload={
+                "structured_prompt": structured_prompt,
+                "context_payload": context_payload,
+                "stream": True,
+            },
+            output_payload={"partial_text": partial_text} if partial_text else {},
+            token_usage=normalize_token_usage(token_usage, model),
+            error_message=detail,
+            started_at=started_at,
+        )
+        session.commit()
+        yield {
+            "event": "error",
+            "error": {
+                "kind": getattr(exc, "kind", "llm"),
+                "message": detail,
+                "retryable": getattr(exc, "retryable", True),
+                "partial_word_count": len(partial_text),
+            },
+        }
 
 
 def run_extraction_agent(session: Session, chapter: ChapterModel, draft: DraftModel) -> AgentRunModel:
@@ -1329,7 +1557,7 @@ def create_revision(session: Session, chapter: ChapterModel, feedback: str | Non
         )
         session.add(revision)
         chapter.current_version_id = revision.id
-        chapter.status = "revisionRequired"
+        transition_chapter(chapter, "revisionRequired")
         record_agent_result(
             session,
             run_id=f"{chapter.id}_revision_agent_v{next_version}",
@@ -1354,7 +1582,7 @@ def create_revision(session: Session, chapter: ChapterModel, feedback: str | Non
     )
     session.add(revision)
     chapter.current_version_id = revision.id
-    chapter.status = "revisionRequired"
+    transition_chapter(chapter, "revisionRequired")
     result = ChapterWorkflowOrchestrator().run_revision(
         novel_id=chapter.novel_id,
         chapter_id=chapter.id,
@@ -1415,7 +1643,7 @@ def confirm_canon_update_patch(session: Session, chapter: ChapterModel, novel: N
         else:
             for key, value in history_values.items():
                 setattr(history, key, value)
-    chapter.status = "completed"
+    transition_chapter(chapter, "completed")
     novel.current_canon_version = patch["target_canon_version"]
     return patch
 

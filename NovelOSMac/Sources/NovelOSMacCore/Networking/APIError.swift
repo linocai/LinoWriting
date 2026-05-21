@@ -55,6 +55,14 @@ public enum APIError: Error, Equatable, Sendable {
         if let detail = json["detail"] as? String {
             return detail
         }
+        if let error = json["error"] as? [String: Any] {
+            if let message = error["message"] as? String {
+                return message
+            }
+            if let kind = error["kind"] as? String {
+                return kind
+            }
+        }
         if let message = json["message"] as? String {
             return message
         }

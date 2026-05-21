@@ -31,6 +31,9 @@ struct StepCanonPatchReviewView: View {
                             }
                         }
                     }
+                } else if store.chapter.status == .canonPatchPending || store.chapter.status == .completed {
+                    StatusBanner(message: "正在同步基础文档更新记录。", tone: .blue)
+                    EmptyStateView(text: "这一步已经到达，但本地还没有拿到 Canon Patch。系统正在从后端重新加载。")
                 } else {
                     EmptyStateView(text: "基础文档更新尚未准备。请先批准正文。")
                 }
@@ -52,6 +55,9 @@ struct StepCanonPatchReviewView: View {
                 .buttonStyle(BlueButtonStyle())
                 .disabled(store.canonPatch == nil || store.chapter.status == .completed)
             }
+        }
+        .task {
+            await store.loadCanonPatchIfNeeded()
         }
     }
 

@@ -79,7 +79,7 @@ struct StepFinalApprovalView: View {
             )
             SideNoteView(
                 title: "版本控制",
-                text: "批准时会保存最终候选版本；历史草稿、修改版和审计结果仍可在版本与调试中查看。"
+                text: "批准时会保存最终候选版本；历史草稿、修改版和审计结果仍可在本章流程日志中查看。"
             )
         }
     }

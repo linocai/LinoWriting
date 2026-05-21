@@ -15,7 +15,7 @@ struct RootShellView: View {
 
         NavigationSplitView {
             SidebarView()
-                .navigationSplitViewColumnWidth(min: 240, ideal: 260, max: 300)
+                .navigationSplitViewColumnWidth(min: 248, ideal: 264, max: 300)
         } detail: {
             GeometryReader { proxy in
                 let shouldShowInspector = proxy.size.width >= 1100 && appStore.isInspectorVisible
@@ -25,17 +25,22 @@ struct RootShellView: View {
 
                     HStack(spacing: 0) {
                         MainWorkspaceView()
-                            .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
+                            .frame(minWidth: 0, maxWidth: .infinity, maxHeight: proxy.size.height, alignment: .topLeading)
 
                         if shouldShowInspector {
                             Divider()
                                 .overlay(AppTheme.line)
                             InspectorView()
-                                .frame(width: 340)
+                                .frame(width: 348, height: proxy.size.height, alignment: .top)
                                 .transition(.move(edge: .trailing).combined(with: .opacity))
                         }
                     }
+                    .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+                    .clipped()
+                    .animation(AppTheme.Motion.viewSwitch, value: appStore.selectedWorkspace)
+                    .animation(AppTheme.Motion.viewSwitch, value: shouldShowInspector)
                 }
+                .frame(width: proxy.size.width, height: proxy.size.height)
             }
         }
         .task {
@@ -66,13 +71,15 @@ struct SidebarView: View {
             SidebarSection(title: "Library", items: Workspace.allCases.filter { $0.section == .library })
 
             Spacer(minLength: 18)
+
+            SidebarFooterView()
         }
         .padding(.horizontal, 14)
         .padding(.top, macOSWindowControlsClearance)
         .padding(.bottom, 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(.regularMaterial)
-        .background(AppTheme.sidebarBase.opacity(0.82))
+        .background(Color.white.opacity(0.86))
         .sheet(isPresented: $novelLibraryStore.isShowingNewNovelSheet) {
             NewNovelSheet()
                 .environment(appStore)
@@ -198,6 +205,32 @@ struct SidebarView: View {
     }
 }
 
+private struct SidebarFooterView: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "shield.lefthalf.filled")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(AppTheme.blue)
+                Text("后台守护")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(AppTheme.text)
+            }
+            Text("Context Compiler、Knowledge Guard、Named Entity Linter 默认后台运行。你只需要完成五个用户动作。")
+                .font(.caption)
+                .foregroundStyle(AppTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.60), in: RoundedRectangle(cornerRadius: AppTheme.radiusMD, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.radiusMD, style: .continuous)
+                .stroke(Color.white.opacity(0.84), lineWidth: 1)
+        )
+    }
+}
+
 private struct NewNovelSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AppStore.self) private var appStore
@@ -311,7 +344,7 @@ private struct SidebarNavItem: View {
             HStack(spacing: 10) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(isSelected ? AppTheme.blue.opacity(0.12) : Color.white.opacity(isHovered ? 0.62 : 0.34))
+                        .fill(isSelected ? AppTheme.blue.opacity(0.10) : Color.white.opacity(isHovered ? 0.62 : 0.34))
                     Image(systemName: workspace.systemImage)
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(isSelected ? AppTheme.blue : AppTheme.muted)
@@ -326,18 +359,12 @@ private struct SidebarNavItem: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
             .background(
-                Color.white.opacity(isSelected ? 0.90 : (isHovered ? 0.58 : 0)),
+                Color.white.opacity(isSelected ? 0.94 : (isHovered ? 0.58 : 0)),
                 in: RoundedRectangle(cornerRadius: AppTheme.radiusMD, style: .continuous)
             )
-            .overlay(alignment: .leading) {
-                if isSelected {
-                    Capsule()
-                        .fill(AppTheme.blue)
-                        .frame(width: 3, height: 22)
-                        .padding(.leading, 1)
-                }
-            }
             .shadow(color: isSelected ? Color.black.opacity(0.06) : .clear, radius: 12, x: 0, y: 6)
+            .animation(AppTheme.Motion.easeOut, value: isSelected)
+            .animation(AppTheme.Motion.easeOut, value: isHovered)
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
@@ -364,6 +391,11 @@ struct MainWorkspaceView: View {
                 WritingSettingsView()
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .clipped()
+        .id(appStore.selectedWorkspace)
+        .transition(.opacity.combined(with: .move(edge: .top)))
+        .animation(AppTheme.Motion.viewSwitch, value: appStore.selectedWorkspace)
     }
 }
 
@@ -373,42 +405,147 @@ struct InspectorView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                InspectorSection(title: "本章安全边界") {
-                    HStack {
-                        Text("状态")
-                            .foregroundStyle(AppTheme.muted)
-                        Spacer()
-                        PillView(text: "已就绪", tone: .green)
-                    }
-                    .font(.callout)
-                    MetricRowView(title: "本章出场", value: chapterStore.safetySummary.activeCast.joined(separator: ", "), tone: .green)
-                    MetricRowView(title: "可用专名数", value: "\(chapterStore.safetySummary.allowedNamesCount)", tone: .blue)
-                    MetricRowView(title: "弱提及额度", value: "\(chapterStore.safetySummary.mentionBudgetTotal)", tone: .orange)
-                    MetricRowView(title: "新增命名角色", value: "禁止", tone: .red)
-                }
+                safetySection
+                agentStatusSection
+                userActionsSection
+                auditPreviewSection
+                macInteractionSection
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 20)
         }
+        .scrollIndicators(.visible)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(.regularMaterial)
         .background(AppTheme.sidebarBase.opacity(0.78))
+    }
+
+    private var safetySection: some View {
+        InspectorSection(title: "本章安全边界", trailing: AnyView(PillView(text: "已就绪", tone: .green))) {
+            MetricRowView(title: "本章出场", value: chapterStore.safetySummary.activeCast.joined(separator: ", "), tone: .green)
+            MetricRowView(title: "可用专名数", value: "\(chapterStore.safetySummary.allowedNamesCount)", tone: .blue)
+            MetricRowView(title: "弱提及额度", value: "\(chapterStore.safetySummary.mentionBudgetTotal)", tone: .orange)
+            MetricRowView(title: "新增命名角色", value: chapterStore.safetySummary.newNamedCharacterPolicy, tone: .red)
+        }
+    }
+
+    private var agentStatusSection: some View {
+        InspectorSection(title: "后台运行状态") {
+            VStack(alignment: .leading, spacing: 8) {
+                AgentStatusRow(name: "Writing Agent", status: draftStatusLabel, tone: draftStatusTone)
+                if chapterStore.isDraftStreaming {
+                    MetricRowView(title: "实时字数", value: "\(chapterStore.streamedWordCount)", tone: .blue)
+                } else if chapterStore.visibleDraftWordCount > 0 {
+                    MetricRowView(title: "当前正文", value: "\(chapterStore.visibleDraftWordCount) 字", tone: .blue)
+                }
+                AgentStatusRow(name: "Context Compiler", status: promptPipelineStatusLabel, tone: promptPipelineStatusTone)
+                AgentStatusRow(name: "Prompt Expander", status: promptPipelineStatusLabel, tone: promptPipelineStatusTone)
+                AgentStatusRow(name: "Named Entity Auditor", status: auditStatusLabel, tone: auditStatusTone)
+                AgentStatusRow(name: "Knowledge Auditor", status: auditStatusLabel, tone: auditStatusTone)
+                AgentStatusRow(name: "Continuity Auditor", status: auditStatusLabel, tone: auditStatusTone)
+            }
+        }
+    }
+
+    private var userActionsSection: some View {
+        InspectorSection(title: "你只需要关心") {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(ChapterStep.allCases) { step in
+                    StepProgressRow(
+                        step: step,
+                        isCurrent: step == chapterStore.currentStep,
+                        isUnlocked: chapterStore.canMove(to: step),
+                        isDone: step.rawValue < chapterStore.currentStep.rawValue || step.rawValue < chapterStore.highestUnlockedStep.rawValue
+                    )
+                }
+            }
+        }
+    }
+
+    private var auditPreviewSection: some View {
+        InspectorSection(title: "本章 Audit 预览") {
+            if let summary = chapterStore.auditSummary {
+                HStack(spacing: 8) {
+                    PillView(text: "S0 \(summary.s0Count)", tone: summary.s0Count == 0 ? .green : .red)
+                    PillView(text: "S1 \(summary.s1Count)", tone: summary.s1Count == 0 ? .green : .orange)
+                    PillView(text: "S2 \(summary.s2Count)", tone: summary.s2Count == 0 ? .green : .blue)
+                }
+                MetricRowView(title: "非法专名", value: "\(summary.illegalNamedEntityCount)", tone: summary.illegalNamedEntityCount == 0 ? .green : .red)
+                MetricRowView(title: "知识越界", value: "\(summary.knowledgeViolationCount)", tone: summary.knowledgeViolationCount == 0 ? .green : .red)
+            } else {
+                Text("正文生成后会显示本章 S0 / S1 / S2 预览。")
+                    .font(.callout)
+                    .foregroundStyle(AppTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var macInteractionSection: some View {
+        InspectorSection(title: "macOS 交互") {
+            VStack(alignment: .leading, spacing: 8) {
+                ShortcutRow(title: "继续 / 确认", keys: ["⌘", "↩"])
+                ShortcutRow(title: "保存当前页", keys: ["⌘", "S"])
+                ShortcutRow(title: "切换 Inspector", keys: ["⌘", "⇧", "I"])
+                ShortcutRow(title: "切换工作区", keys: ["⌘", "1-4"])
+            }
+        }
+    }
+
+    private var draftStatusLabel: String {
+        if chapterStore.isDraftStreaming { return "流式生成中 · \(chapterStore.streamedWordCount) 字" }
+        if chapterStore.isLoading { return "运行中" }
+        return chapterStore.draft == nil ? "待运行" : "完成"
+    }
+
+    private var draftStatusTone: PillTone {
+        if chapterStore.isDraftStreaming { return .blue }
+        if chapterStore.isLoading { return .blue }
+        return chapterStore.draft == nil ? .neutral : .green
+    }
+
+    private var auditStatusLabel: String {
+        chapterStore.auditSummary == nil ? "待运行" : "完成"
+    }
+
+    private var auditStatusTone: PillTone {
+        chapterStore.auditSummary == nil ? .neutral : .green
+    }
+
+    private var promptPipelineStatusLabel: String {
+        if chapterStore.structuredPrompt != nil || chapterStore.currentStep.rawValue >= ChapterStep.structuredPromptReview.rawValue {
+            return "完成"
+        }
+        return "待运行"
+    }
+
+    private var promptPipelineStatusTone: PillTone {
+        promptPipelineStatusLabel == "完成" ? .green : .neutral
     }
 }
 
 private struct InspectorSection<Content: View>: View {
     let title: String
+    let trailing: AnyView?
     let content: Content
 
-    init(title: String, @ViewBuilder content: () -> Content) {
+    init(title: String, trailing: AnyView? = nil, @ViewBuilder content: () -> Content) {
         self.title = title
+        self.trailing = trailing
         self.content = content()
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title)
-                .font(.headline.weight(.bold))
-                .foregroundStyle(AppTheme.text)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(title)
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(AppTheme.text)
+                Spacer(minLength: 8)
+                if let trailing {
+                    trailing
+                }
+            }
             content
         }
         .padding(14)
@@ -419,5 +556,100 @@ private struct InspectorSection<Content: View>: View {
                 .stroke(Color.white.opacity(0.86), lineWidth: 1)
         )
         .shadow(color: Color.black.opacity(0.04), radius: 14, x: 0, y: 8)
+    }
+}
+
+private struct AgentStatusRow: View {
+    let name: String
+    let status: String
+    let tone: PillTone
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(tone.palette.foreground)
+                .frame(width: 7, height: 7)
+            Text(name)
+                .font(.callout)
+                .foregroundStyle(AppTheme.text)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            Text(status)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(tone.palette.foreground)
+        }
+    }
+}
+
+private struct StepProgressRow: View {
+    let step: ChapterStep
+    let isCurrent: Bool
+    let isUnlocked: Bool
+    let isDone: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ZStack {
+                Circle()
+                    .fill(badgeTone.palette.background)
+                Image(systemName: isDone ? "checkmark" : "\(step.rawValue).circle.fill")
+                    .font(.system(size: isDone ? 10 : 12, weight: .bold))
+                    .foregroundStyle(badgeTone.palette.foreground)
+            }
+            .frame(width: 22, height: 22)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(step.title)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(AppTheme.text)
+                    .lineLimit(1)
+                Text(statusLabel)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(badgeTone.palette.foreground)
+            }
+            Spacer(minLength: 4)
+        }
+        .padding(8)
+        .background(isCurrent ? AppTheme.blue.opacity(0.10) : Color.white.opacity(0.42), in: RoundedRectangle(cornerRadius: AppTheme.radiusSM, style: .continuous))
+    }
+
+    private var badgeTone: PillTone {
+        if isCurrent { return .blue }
+        if isDone { return .green }
+        return isUnlocked ? .orange : .neutral
+    }
+
+    private var statusLabel: String {
+        if isCurrent { return "当前" }
+        if isDone { return "完成" }
+        return isUnlocked ? "可进入" : "未就绪"
+    }
+}
+
+private struct ShortcutRow: View {
+    let title: String
+    let keys: [String]
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(title)
+                .font(.callout)
+                .foregroundStyle(AppTheme.muted)
+            Spacer()
+            HStack(spacing: 4) {
+                ForEach(keys, id: \.self) { key in
+                    Text(key)
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(AppTheme.text)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(Color.white.opacity(0.72), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .stroke(AppTheme.line, lineWidth: 1)
+                        )
+                }
+            }
+        }
     }
 }

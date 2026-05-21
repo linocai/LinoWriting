@@ -1,4 +1,7 @@
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -28,9 +31,11 @@ from app.services import (
     require_s0_free,
     run_extraction_agent,
     run_prompt_pipeline,
+    stream_writing_agent_events,
     run_writing_agent,
     save_canon_patch,
     save_structured_prompt,
+    transition_chapter,
 )
 
 router = APIRouter(prefix="/api/chapters/{chapter_id}", tags=["chapter-workflow"])
@@ -66,7 +71,7 @@ def update_structured_prompt(
     payload = prompt.model_dump(mode="json")
     payload["chapter_id"] = chapter.id
     save_structured_prompt(session, chapter, payload, status="ready_for_review")
-    chapter.status = "structuredPromptReady"
+    transition_chapter(chapter, "structuredPromptReady")
     session.commit()
     return payload
 
@@ -75,7 +80,7 @@ def update_structured_prompt(
 def approve_structured_prompt(chapter_id: str, session: Session = Depends(get_session)):
     chapter = require_chapter(session, chapter_id)
     ensure_structured_prompt(session, chapter)
-    chapter.status = "structuredPromptApproved"
+    transition_chapter(chapter, "structuredPromptApproved")
     session.commit()
     return Response(status_code=204)
 
@@ -86,6 +91,17 @@ def generate_draft(chapter_id: str, session: Session = Depends(get_session)):
     run_writing_agent(session, chapter)
     session.commit()
     return Response(status_code=204)
+
+
+@router.post("/draft/generate/stream")
+def generate_draft_stream(chapter_id: str, session: Session = Depends(get_session)):
+    chapter = require_chapter(session, chapter_id)
+
+    def event_stream():
+        for event in stream_writing_agent_events(session, chapter):
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @router.get("/draft/latest", response_model=Draft)
@@ -109,7 +125,7 @@ def review_draft(
     else:
         draft = ensure_initial_draft(session, chapter)
         require_s0_free(draft)
-        chapter.status = "draftApproved"
+        transition_chapter(chapter, "draftApproved")
         chapter.current_version_id = draft.id
         chapter.approved_version_id = draft.id
     session.commit()
@@ -123,7 +139,7 @@ def approve_final_text(chapter_id: str, session: Session = Depends(get_session))
     require_s0_free(draft)
     run_extraction_agent(session, chapter, draft)
     ensure_canon_patch(session, chapter)
-    chapter.status = "canonPatchPending"
+    transition_chapter(chapter, "canonPatchPending")
     chapter.current_version_id = draft.id
     chapter.approved_version_id = draft.id
     session.commit()

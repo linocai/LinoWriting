@@ -5,6 +5,7 @@ import os
 import secrets
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import sessionmaker
@@ -12,8 +13,7 @@ from sqlalchemy.orm import sessionmaker
 from app import models  # noqa: F401
 from app.config import env_flag, env_list, load_environment, owner_token, require_owner_token
 from app.database import Base, SessionLocal, engine
-from app.errors import llm_error_response
-from app.llm.gateway import LLMGatewayError
+from app.errors import APIError, api_error_response, http_error_payload
 from app.routers import admin, base_documents, chapter_workflow, knowledge_matrix, novels
 from app.seed import seed_database
 
@@ -56,9 +56,13 @@ def create_app(init_on_startup: bool = True) -> FastAPI:
     def healthz():
         return {"status": "ok"}
 
-    @app.exception_handler(LLMGatewayError)
-    async def llm_gateway_error_handler(request: Request, exc: LLMGatewayError):
-        return llm_error_response(exc)
+    @app.exception_handler(APIError)
+    async def api_error_handler(request: Request, exc: APIError):
+        return api_error_response(exc)
+
+    @app.exception_handler(HTTPException)
+    async def http_exception_handler(request: Request, exc: HTTPException):
+        return JSONResponse(status_code=exc.status_code, content=http_error_payload(exc.status_code, exc.detail))
 
     @app.middleware("http")
     async def owner_token_middleware(request: Request, call_next):
@@ -69,11 +73,14 @@ def create_app(init_on_startup: bool = True) -> FastAPI:
         if not expected:
             return JSONResponse(
                 status_code=503,
-                content={"detail": "Owner token is required but NOVEL_OS_OWNER_TOKEN is not configured."},
+                content=http_error_payload(
+                    503,
+                    "Owner token is required but NOVEL_OS_OWNER_TOKEN is not configured.",
+                ),
             )
         provided = request.headers.get("X-NovelOS-Owner-Token", "")
         if not secrets.compare_digest(provided, expected):
-            return JSONResponse(status_code=401, content={"detail": "Invalid owner token."})
+            return JSONResponse(status_code=401, content=http_error_payload(401, "Invalid owner token."))
         return await call_next(request)
 
     app.include_router(chapter_workflow.router)

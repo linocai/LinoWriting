@@ -65,7 +65,9 @@ struct PrimaryButtonStyle: ButtonStyle {
             .padding(.horizontal, 13)
             .padding(.vertical, 8)
             .background(isEnabled ? AppTheme.dark : AppTheme.panelSubtle, in: RoundedRectangle(cornerRadius: AppTheme.radiusSM, style: .continuous))
-            .opacity(configuration.isPressed ? 0.82 : 1)
+            .scaleEffect(configuration.isPressed ? 0.985 : 1)
+            .brightness(configuration.isPressed ? -0.04 : 0)
+            .animation(AppTheme.Motion.easeOut, value: configuration.isPressed)
     }
 }
 
@@ -81,7 +83,9 @@ struct BlueButtonStyle: ButtonStyle {
             .padding(.vertical, 8)
             .background(isEnabled ? AppTheme.blue : AppTheme.panelSubtle, in: RoundedRectangle(cornerRadius: AppTheme.radiusSM, style: .continuous))
             .shadow(color: isEnabled ? AppTheme.blue.opacity(0.18) : .clear, radius: 8, x: 0, y: 4)
-            .opacity(configuration.isPressed ? 0.82 : 1)
+            .scaleEffect(configuration.isPressed ? 0.985 : 1)
+            .brightness(configuration.isPressed ? -0.04 : 0)
+            .animation(AppTheme.Motion.easeOut, value: configuration.isPressed)
     }
 }
 
@@ -100,6 +104,9 @@ struct GhostButtonStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: AppTheme.radiusSM, style: .continuous)
                     .stroke(Color.white.opacity(0.82), lineWidth: 1)
             )
+            .scaleEffect(configuration.isPressed ? 0.985 : 1)
+            .brightness(configuration.isPressed ? -0.04 : 0)
+            .animation(AppTheme.Motion.easeOut, value: configuration.isPressed)
     }
 }
 
@@ -118,7 +125,9 @@ struct DangerButtonStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: AppTheme.radiusSM, style: .continuous)
                     .stroke(AppTheme.red.opacity(isEnabled ? 0.18 : 0.06), lineWidth: 1)
             )
-            .opacity(configuration.isPressed ? 0.82 : 1)
+            .scaleEffect(configuration.isPressed ? 0.985 : 1)
+            .brightness(configuration.isPressed ? -0.04 : 0)
+            .animation(AppTheme.Motion.easeOut, value: configuration.isPressed)
     }
 }
 
@@ -305,6 +314,64 @@ struct PromptCard<Content: View>: View {
     }
 }
 
+struct TemplateCard<Content: View, HeaderAction: View>: View {
+    let title: String
+    var badge: String?
+    var tone: PillTone
+    let headerAction: HeaderAction
+    let content: Content
+
+    init(
+        title: String,
+        badge: String? = nil,
+        tone: PillTone = .neutral,
+        @ViewBuilder headerAction: () -> HeaderAction = { EmptyView() },
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.badge = badge
+        self.tone = tone
+        self.headerAction = headerAction()
+        self.content = content()
+    }
+
+    init(
+        title: String,
+        badge: String? = nil,
+        tone: PillTone = .neutral,
+        @ViewBuilder content: () -> Content
+    ) where HeaderAction == EmptyView {
+        self.title = title
+        self.badge = badge
+        self.tone = tone
+        self.headerAction = EmptyView()
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 8) {
+                Text(title)
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(AppTheme.text)
+                if let badge {
+                    PillView(text: badge, tone: tone)
+                }
+                Spacer(minLength: 8)
+                headerAction
+            }
+            content
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.64), in: RoundedRectangle(cornerRadius: AppTheme.radiusLG, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.radiusLG, style: .continuous)
+                .stroke(tone == .neutral ? Color.white.opacity(0.84) : tone.palette.border, lineWidth: 1)
+        )
+    }
+}
+
 struct StatusBanner: View {
     let message: String
     var tone: PillTone = .blue
@@ -330,6 +397,7 @@ struct SoftTextEditor: View {
     var idealHeight: CGFloat?
     var maxHeight: CGFloat?
     var font: Font = .body
+    var lineSpacing: CGFloat = 0
 
     @FocusState private var isFocused: Bool
 
@@ -339,7 +407,8 @@ struct SoftTextEditor: View {
         minHeight: CGFloat = 120,
         idealHeight: CGFloat? = nil,
         maxHeight: CGFloat? = nil,
-        font: Font = .body
+        font: Font = .body,
+        lineSpacing: CGFloat = 0
     ) {
         _text = text
         self.placeholder = placeholder
@@ -347,12 +416,14 @@ struct SoftTextEditor: View {
         self.idealHeight = idealHeight
         self.maxHeight = maxHeight
         self.font = font
+        self.lineSpacing = lineSpacing
     }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             TextEditor(text: $text)
                 .font(font)
+                .lineSpacing(lineSpacing)
                 .scrollContentBackground(.hidden)
                 .focused($isFocused)
                 .frame(minHeight: minHeight, idealHeight: idealHeight, maxHeight: maxHeight)
@@ -564,7 +635,7 @@ struct TopBarView<Trailing: View>: View {
                 .foregroundStyle(AppTheme.muted)
             Text(title)
                 .font(.system(size: 28, weight: .bold, design: .default))
-                .tracking(-0.4)
+                .tracking(0)
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
                 .foregroundStyle(AppTheme.text)
@@ -676,10 +747,12 @@ struct KnowledgeStatePillPicker: View {
 extension KnowledgeState {
     var tone: PillTone {
         switch self {
-        case .known, .readerKnown, .stronglySuspects:
+        case .known, .stronglySuspects:
             .green
         case .suspects, .hinted, .partial, .mayKnow:
             .orange
+        case .readerKnown:
+            .blue
         case .authorOnly:
             .purple
         case .unknown, .readerUnknown:

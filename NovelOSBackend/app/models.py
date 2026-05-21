@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
@@ -127,6 +127,17 @@ class AgentRunModel(Base):
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[float] = mapped_column(Float, nullable=False)
 
+    @property
+    def latency_ms(self) -> Optional[float]:
+        if self.started_at is None or self.completed_at is None:
+            return None
+        completed_at = self.completed_at
+        if completed_at.tzinfo is None:
+            completed_at = completed_at.replace(tzinfo=timezone.utc)
+        apple_reference = datetime(2001, 1, 1, tzinfo=timezone.utc)
+        completed_seconds = (completed_at - apple_reference).total_seconds()
+        return max(0.0, (completed_seconds - self.started_at) * 1000)
+
 
 class AuditReportModel(Base):
     __tablename__ = "audit_reports"
@@ -204,7 +215,7 @@ class KnowledgeMatrixEntryModel(Base):
     author_knowledge: Mapped[str] = mapped_column(String, nullable=False)
     reader_knowledge: Mapped[str] = mapped_column(String, nullable=False)
     character_knowledge: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
-    visibility: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    visibility: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     allowed_narration: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     canon_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 

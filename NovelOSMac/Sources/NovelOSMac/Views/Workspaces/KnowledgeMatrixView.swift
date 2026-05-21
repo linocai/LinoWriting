@@ -125,33 +125,24 @@ struct KnowledgeMatrixView: View {
             }
             .padding(AppTheme.pagePadding)
         }
+        .scrollIndicators(.visible)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AppBackgroundView())
         .task {
-            await store.loadEntries()
+            await store.loadIfNeeded()
         }
     }
 
     private var summaryStrip: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 12, alignment: .top)], alignment: .leading, spacing: 12) {
-            MatrixSummaryCard(title: "Author Only", value: "\(authorOnlyCount)", tone: .purple)
-            MatrixSummaryCard(title: "Reader Known", value: "\(readerKnownCount)", tone: .green)
-            MatrixSummaryCard(title: "A Unknown", value: "\(characterUnknownCount("A"))", tone: .neutral)
-            MatrixSummaryCard(title: "可能越界", value: "\(possibleLeakCount)", tone: possibleLeakCount > 0 ? .orange : .green)
+            MatrixSummaryCard(title: "总秘密", value: "\(store.entries.count)", tone: .purple)
+            MatrixSummaryCard(title: "本章可见性变化", value: "\(visibilityChangeCount)", tone: .blue)
+            MatrixSummaryCard(title: "Auditor 状态", value: possibleLeakCount > 0 ? "待检查" : "通过", tone: possibleLeakCount > 0 ? .orange : .green)
         }
     }
 
-    private var authorOnlyCount: Int {
-        store.entries.filter { $0.authorKnowledge == .authorOnly || $0.truthStatus.localizedCaseInsensitiveContains("author") }.count
-    }
-
-    private var readerKnownCount: Int {
-        store.entries.filter { $0.readerKnowledge == .readerKnown }.count
-    }
-
-    private func characterUnknownCount(_ name: String) -> Int {
-        store.entries.filter { entry in
-            entry.characterKnowledge.first(where: { $0.characterName == name })?.state == .unknown
-        }.count
+    private var visibilityChangeCount: Int {
+        store.entries.filter { !$0.characterVisibility.isEmpty }.count
     }
 
     private var possibleLeakCount: Int {
@@ -253,11 +244,11 @@ struct KnowledgeMatrixView: View {
         Binding {
             guard
                 let entry = store.entries.first(where: { $0.id == id }),
-                let knowledge = entry.characterKnowledge.first(where: { $0.characterName == characterName })
+                let state = entry.visibility[characterName]
             else {
                 return .unknown
             }
-            return knowledge.state
+            return state
         } set: { value in
             store.updateCharacterState(entryID: id, characterName: characterName, state: value)
         }

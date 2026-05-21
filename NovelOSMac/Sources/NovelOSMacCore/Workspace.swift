@@ -14,8 +14,8 @@ public enum Workspace: String, CaseIterable, Identifiable, Codable, Equatable, S
         switch self {
         case .chapterStudio: "Chapter Studio"
         case .baseFiles: "基础文件"
-        case .knowledgeMatrix: "知识矩阵"
-        case .versionsDebug: "版本与调试"
+        case .knowledgeMatrix: "Knowledge Matrix"
+        case .versionsDebug: "本章流程日志"
         case .chaptersList: "章节列表"
         case .writingSettings: "写作设置"
         }
@@ -26,7 +26,7 @@ public enum Workspace: String, CaseIterable, Identifiable, Codable, Equatable, S
         case .chapterStudio: "square.and.pencil"
         case .baseFiles: "doc.text"
         case .knowledgeMatrix: "tablecells"
-        case .versionsDebug: "ladybug"
+        case .versionsDebug: "list.bullet.clipboard"
         case .chaptersList: "list.bullet.rectangle"
         case .writingSettings: "gearshape"
         }

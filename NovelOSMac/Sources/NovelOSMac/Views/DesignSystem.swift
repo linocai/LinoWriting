@@ -34,6 +34,12 @@ enum AppTheme {
 
     static let shadow = Color.black.opacity(0.08)
 
+    enum Motion {
+        static let easeOut = Animation.timingCurve(0.2, 0.7, 0.2, 1, duration: 0.18)
+        static let spring = Animation.spring(response: 0.32, dampingFraction: 0.78)
+        static let viewSwitch = Animation.timingCurve(0.2, 0.7, 0.2, 1, duration: 0.22)
+    }
+
     // Backward-compatible semantic aliases while older views are migrated.
     static let background = backgroundBase
     static let sidebar = sidebarBase

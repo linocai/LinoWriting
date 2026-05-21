@@ -1,9 +1,42 @@
 from __future__ import annotations
 
+from typing import Any, Optional
+
+from pydantic import BaseModel, ConfigDict, Field
+
 from app import config
 from app import mock_data
 from app.agents.base import AgentInput, AgentResult
 from app.llm.gateway import LLMGateway, MockLLMGateway
+
+
+class AllowedNamedEntitySchema(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    name: str
+    activation: str = "ACTIVE"
+    mention_budget: Optional[int] = None
+
+
+class ActivationSummarySchema(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    active_cast: list[str] = Field(default_factory=list)
+    allowed_names_count: int = 0
+    mention_budget_total: int = 0
+    new_named_character_policy: str = "禁止，除非结构化 Prompt 明确批准"
+
+
+class StructuredPromptSchema(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    chapter_goal: str
+    must_happen: list[str] = Field(default_factory=list)
+    must_not_happen: list[str] = Field(default_factory=list)
+    allowed_named_entities: list[AllowedNamedEntitySchema] = Field(default_factory=list)
+    narrative_style: str = ""
+    activation_summary: Optional[ActivationSummarySchema] = None
+    version: int = 1
 
 
 class PromptExpanderAgent:
@@ -21,6 +54,7 @@ class PromptExpanderAgent:
                     f"Context Pack：{agent_input.payload.get('context_payload', {})}"
                 ),
                 schema_name="structured_prompt",
+                schema=StructuredPromptSchema,
                 system=(
                     "你是长篇小说结构化 Prompt 扩展器。输出 JSON，字段必须包含："
                     "chapter_goal string, must_happen string[], must_not_happen string[], "
@@ -52,7 +86,7 @@ class PromptExpanderAgent:
         )
 
 
-def _normalized_structured_prompt(payload: dict, chapter_id: str | None) -> dict:
+def _normalized_structured_prompt(payload: dict[str, Any], chapter_id: str | None) -> dict:
     allowed = [
         {
             **item,

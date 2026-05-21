@@ -89,8 +89,43 @@ public actor APIClient: ChapterWorkflowAPI, BaseDocumentsAPI, KnowledgeMatrixAPI
         try await perform(Endpoint.generateDraft(chapterID: chapterID))
     }
 
+    public func generateDraftStream(chapterID: String, onEvent: @MainActor @Sendable @escaping (DraftStreamEvent) async -> Void) async throws {
+        var request = try Endpoint.generateDraftStream(chapterID: chapterID).urlRequest(baseURL: baseURLProvider())
+        if let ownerToken = ownerTokenProvider()?.trimmingCharacters(in: .whitespacesAndNewlines), !ownerToken.isEmpty {
+            request.setValue(ownerToken, forHTTPHeaderField: "X-NovelOS-Owner-Token")
+        }
+
+        do {
+            let (bytes, response) = try await session.bytes(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw APIError.invalidResponse
+            }
+            guard 200..<300 ~= httpResponse.statusCode else {
+                throw APIError.httpStatus(httpResponse.statusCode, "")
+            }
+            var dataLines: [String] = []
+            for try await line in bytes.lines {
+                if line.isEmpty {
+                    try await emitStreamEvent(from: dataLines, onEvent: onEvent)
+                    dataLines.removeAll()
+                } else if line.hasPrefix("data:") {
+                    dataLines.append(String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces))
+                }
+            }
+            try await emitStreamEvent(from: dataLines, onEvent: onEvent)
+        } catch let error as APIError {
+            throw error
+        } catch {
+            throw APIError.transport(String(describing: error))
+        }
+    }
+
     public func getLatestDraft(chapterID: String) async throws -> Draft {
         try await perform(Endpoint.getLatestDraft(chapterID: chapterID))
+    }
+
+    public func getAgentRuns(chapterID: String) async throws -> [AgentRun] {
+        try await perform(Endpoint.getAgentRuns(chapterID: chapterID))
     }
 
     public func reviewDraft(chapterID: String, request: DraftReviewRequest) async throws {
@@ -205,6 +240,23 @@ public actor APIClient: ChapterWorkflowAPI, BaseDocumentsAPI, KnowledgeMatrixAPI
             throw error
         } catch {
             throw APIError.transport(String(describing: error))
+        }
+    }
+
+    private func emitStreamEvent(
+        from dataLines: [String],
+        onEvent: @MainActor @Sendable @escaping (DraftStreamEvent) async -> Void
+    ) async throws {
+        guard !dataLines.isEmpty else { return }
+        let payload = dataLines.joined(separator: "\n")
+        guard let data = payload.data(using: .utf8) else {
+            throw APIError.decodingFailed("SSE payload is not UTF-8.")
+        }
+        do {
+            let event = try APIJSONCoding.makeDecoder().decode(DraftStreamEvent.self, from: data)
+            await onEvent(event)
+        } catch {
+            throw APIError.decodingFailed(String(describing: error))
         }
     }
 }

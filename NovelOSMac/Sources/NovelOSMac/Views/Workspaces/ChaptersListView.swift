@@ -47,9 +47,11 @@ struct ChaptersListView: View {
             }
             .padding(AppTheme.pagePadding)
         }
+        .scrollIndicators(.visible)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AppBackgroundView())
         .task {
-            await chapterStore.loadReadableChapters()
+            await chapterStore.loadIfNeeded()
         }
     }
 

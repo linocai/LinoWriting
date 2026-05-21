@@ -429,10 +429,10 @@ public enum MockData {
             truthStatus: "confirmed_author_only",
             authorKnowledge: .known,
             readerKnowledge: .hinted,
-            characterKnowledge: [
-                CharacterKnowledge(characterId: "char_A", characterName: "A", state: .suspects),
-                CharacterKnowledge(characterId: "char_B", characterName: "B", state: .known),
-                CharacterKnowledge(characterId: "char_C", characterName: "C", state: .unknown)
+            visibility: [
+                "A": .suspects,
+                "B": .known,
+                "C": .unknown
             ],
             allowedNarration: "A POV 只能写怀疑和观察，不能确认。",
             canonVersion: 12
@@ -443,10 +443,10 @@ public enum MockData {
             truthStatus: "author_only",
             authorKnowledge: .authorOnly,
             readerKnowledge: .readerUnknown,
-            characterKnowledge: [
-                CharacterKnowledge(characterId: "char_A", characterName: "A", state: .unknown),
-                CharacterKnowledge(characterId: "char_B", characterName: "B", state: .partial),
-                CharacterKnowledge(characterId: "char_C", characterName: "C", state: .unknown)
+            visibility: [
+                "A": .unknown,
+                "B": .partial,
+                "C": .unknown
             ],
             allowedNarration: "本阶段不得写出，不得通过旁白暗示过强。",
             canonVersion: 12
@@ -457,10 +457,10 @@ public enum MockData {
             truthStatus: "chapter_4_reveal",
             authorKnowledge: .known,
             readerKnowledge: .readerKnown,
-            characterKnowledge: [
-                CharacterKnowledge(characterId: "char_A", characterName: "A", state: .known),
-                CharacterKnowledge(characterId: "char_B", characterName: "B", state: .mayKnow),
-                CharacterKnowledge(characterId: "char_C", characterName: "C", state: .known)
+            visibility: [
+                "A": .known,
+                "B": .mayKnow,
+                "C": .known
             ],
             allowedNarration: "第 5 章可以作为调查方向，但不能直接给身份。",
             canonVersion: 12

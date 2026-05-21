@@ -68,6 +68,26 @@ public actor MockChapterWorkflowAPI: ChapterWorkflowAPI {
         draft = MockData.draft
     }
 
+    public func generateDraftStream(chapterID: String, onEvent: @MainActor @Sendable @escaping (DraftStreamEvent) async -> Void) async throws {
+        guard chapterID == MockData.chapter.id else {
+            throw APIError.missingResource("chapter \(chapterID)")
+        }
+        var currentText = ""
+        for start in stride(from: 0, to: MockData.draft.text.count, by: 180) {
+            let lower = MockData.draft.text.index(MockData.draft.text.startIndex, offsetBy: start)
+            let upperOffset = min(start + 180, MockData.draft.text.count)
+            let upper = MockData.draft.text.index(MockData.draft.text.startIndex, offsetBy: upperOffset)
+            let piece = String(MockData.draft.text[lower..<upper])
+            currentText += piece
+            await onEvent(DraftStreamEvent(event: "delta", delta: piece, wordCount: nil, tokens: nil, draftId: nil, versionNo: nil, error: nil))
+            await onEvent(DraftStreamEvent(event: "word_count", delta: nil, wordCount: currentText.count, tokens: nil, draftId: nil, versionNo: nil, error: nil))
+        }
+        draft = MockData.draft
+        await onEvent(DraftStreamEvent(event: "draft_id", delta: nil, wordCount: nil, tokens: nil, draftId: MockData.draft.id, versionNo: MockData.draft.versionNo, error: nil))
+        await onEvent(DraftStreamEvent(event: "tokens", delta: nil, wordCount: nil, tokens: ["model": .string("mock")], draftId: nil, versionNo: nil, error: nil))
+        await onEvent(DraftStreamEvent(event: "done", delta: nil, wordCount: MockData.draft.wordCount, tokens: nil, draftId: MockData.draft.id, versionNo: MockData.draft.versionNo, error: nil))
+    }
+
     public func getLatestDraft(chapterID: String) async throws -> Draft {
         if let importedDraft = MockData.importedChapterDrafts.first(where: { $0.chapterId == chapterID }) {
             return importedDraft
@@ -80,6 +100,17 @@ public actor MockChapterWorkflowAPI: ChapterWorkflowAPI {
         }
         draft = MockData.draft
         return MockData.draft
+    }
+
+    public func getAgentRuns(chapterID: String) async throws -> [AgentRun] {
+        guard chapterID == MockData.chapter.id || MockData.chapters.contains(where: { $0.id == chapterID }) else {
+            throw APIError.missingResource("chapter \(chapterID)")
+        }
+        return MockData.agentRuns.map { run in
+            var updated = run
+            updated.chapterId = chapterID
+            return updated
+        }
     }
 
     public func reviewDraft(chapterID: String, request: DraftReviewRequest) async throws {

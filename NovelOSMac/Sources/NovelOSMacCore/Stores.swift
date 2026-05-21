@@ -18,7 +18,8 @@ public final class AppStore {
 @Observable
 public final class NovelLibraryStore {
     @ObservationIgnored private let api: any NovelLibraryAPI
-    @ObservationIgnored private var hasLoaded = false
+    @ObservationIgnored private var loadedAt: Date?
+    @ObservationIgnored private var inflight: Task<Void, Never>?
 
     public var novels: [Novel] = [MockData.novel]
     public var selectedNovelID: String? = MockData.novel.id
@@ -55,18 +56,37 @@ public final class NovelLibraryStore {
     }
 
     public func loadIfNeeded(
+        maxAge: TimeInterval = 60,
         appStore: AppStore,
         chapterStore: ChapterWorkflowStore,
         baseDocumentsStore: BaseDocumentsStore,
         knowledgeStore: KnowledgeMatrixStore
     ) async {
-        guard !hasLoaded else { return }
-        await reloadAndSelectCurrent(
-            appStore: appStore,
-            chapterStore: chapterStore,
-            baseDocumentsStore: baseDocumentsStore,
-            knowledgeStore: knowledgeStore
-        )
+        if let inflight {
+            await inflight.value
+            return
+        }
+        if let loadedAt, Date().timeIntervalSince(loadedAt) < maxAge {
+            return
+        }
+
+        let task = Task { @MainActor in
+            await self.reloadAndSelectCurrent(
+                appStore: appStore,
+                chapterStore: chapterStore,
+                baseDocumentsStore: baseDocumentsStore,
+                knowledgeStore: knowledgeStore
+            )
+        }
+        inflight = task
+        await task.value
+        inflight = nil
+    }
+
+    public func invalidate() {
+        loadedAt = nil
+        inflight?.cancel()
+        inflight = nil
     }
 
     public func reloadAndSelectCurrent(
@@ -82,7 +102,7 @@ public final class NovelLibraryStore {
         do {
             let loaded = try await api.listNovels()
             novels = loaded.isEmpty ? novels : loaded
-            hasLoaded = true
+            loadedAt = Date()
             let preferredID = selectedNovelID ?? appStore.selectedNovelID ?? chapterStore.novel.id
             let target = novels.first { $0.id == preferredID } ?? sortedNovels.first
             if let target {
@@ -261,8 +281,8 @@ public final class NovelLibraryStore {
             novelID: selectedNovel.id,
             currentCanonVersion: selectedNovel.currentCanonVersion
         )
-        await baseDocumentsStore.loadDocuments(force: true)
-        await knowledgeStore.loadEntries(force: true)
+        await baseDocumentsStore.loadIfNeeded(maxAge: 0)
+        await knowledgeStore.loadIfNeeded(maxAge: 0)
     }
 
     private func chaptersReadyForNovel(_ novel: Novel) async throws -> [Chapter] {
@@ -306,6 +326,8 @@ public final class NovelLibraryStore {
 @Observable
 public final class ChapterWorkflowStore {
     @ObservationIgnored private let api: any ChapterWorkflowAPI
+    @ObservationIgnored private var loadedAt: Date?
+    @ObservationIgnored private var inflight: Task<Void, Never>?
 
     public var novel: Novel
     public var chapter: Chapter
@@ -320,7 +342,14 @@ public final class ChapterWorkflowStore {
     public var reviewFeedback: String
     public var auditSummary: AuditSummary?
     public var canonPatch: CanonUpdatePatch?
+    public var agentRuns: [AgentRun] = []
+    public var isDraftStreaming: Bool = false
+    public var streamedDraftText: String = ""
+    public var streamedWordCount: Int = 0
+    public var streamedTokenUsage: [String: AnyCodable] = [:]
+    public var draftStreamErrorMessage: String?
     public var isLoading: Bool = false
+    public var isRevisionRunning: Bool = false
     public var statusMessage: String?
     public var error: APIError?
 
@@ -364,6 +393,10 @@ public final class ChapterWorkflowStore {
             )
     }
 
+    public var visibleDraftWordCount: Int {
+        draft?.wordCount ?? streamedWordCount
+    }
+
     public func canMove(to step: ChapterStep) -> Bool {
         step.rawValue <= highestUnlockedStep.rawValue
     }
@@ -381,6 +414,7 @@ public final class ChapterWorkflowStore {
     }
 
     public func switchToNovel(_ selectedNovel: Novel, chapters loadedChapters: [Chapter]) async {
+        invalidate()
         novel = selectedNovel
         chapters = loadedChapters.sorted { $0.chapterNo < $1.chapterNo }
         if let active = activeChapter(from: chapters, novel: selectedNovel) {
@@ -397,6 +431,13 @@ public final class ChapterWorkflowStore {
         reviewFeedback = ""
         auditSummary = nil
         canonPatch = nil
+        agentRuns = []
+        isDraftStreaming = false
+        streamedDraftText = ""
+        streamedWordCount = 0
+        streamedTokenUsage = [:]
+        draftStreamErrorMessage = nil
+        isRevisionRunning = false
         selectedReadableChapterID = chapters.first?.id
 
         var loadedDrafts: [String: Draft] = [:]
@@ -410,7 +451,33 @@ public final class ChapterWorkflowStore {
             draft = currentDraft
             auditSummary = currentDraft.auditSummary
         }
+        syncStepWithChapterStatus()
+        await loadCurrentChapterArtifacts()
+        loadedAt = Date()
         statusMessage = "已加载《\(selectedNovel.title)》。"
+    }
+
+    public func loadIfNeeded(maxAge: TimeInterval = 60) async {
+        if let inflight {
+            await inflight.value
+            return
+        }
+        if let loadedAt, Date().timeIntervalSince(loadedAt) < maxAge {
+            return
+        }
+
+        let task = Task { @MainActor in
+            await self.loadReadableChapters()
+        }
+        inflight = task
+        await task.value
+        inflight = nil
+    }
+
+    public func invalidate() {
+        loadedAt = nil
+        inflight?.cancel()
+        inflight = nil
     }
 
     public func loadReadableChapters() async {
@@ -419,9 +486,11 @@ public final class ChapterWorkflowStore {
         defer { isLoading = false }
 
         do {
+            let requestedNovelID = novel.id
             let loadedChapters = try await api.listChapters(novelID: novel.id)
                 .sorted { $0.chapterNo < $1.chapterNo }
             var loadedDrafts: [String: Draft] = [:]
+            guard requestedNovelID == novel.id else { return }
 
             if loadedChapters.isEmpty {
                 chapters = []
@@ -429,6 +498,7 @@ public final class ChapterWorkflowStore {
                 selectedReadableChapterID = nil
                 draft = nil
                 auditSummary = nil
+                loadedAt = Date()
                 statusMessage = "当前书籍还没有章节。"
                 return
             }
@@ -454,6 +524,9 @@ public final class ChapterWorkflowStore {
                 draft = currentDraft
                 auditSummary = currentDraft.auditSummary
             }
+            syncStepWithChapterStatus()
+            await loadCurrentChapterArtifacts()
+            loadedAt = Date()
         } catch {
             handle(error)
         }
@@ -483,13 +556,41 @@ public final class ChapterWorkflowStore {
     public func approveStructuredPromptAndGenerateDraft() async {
         isLoading = true
         error = nil
-        defer { isLoading = false }
+        draftStreamErrorMessage = nil
+        defer {
+            isLoading = false
+            isDraftStreaming = false
+        }
 
         do {
             let prompt = try await currentOrRemoteStructuredPrompt()
             structuredPrompt = try await api.updateStructuredPrompt(prompt, chapterID: chapter.id)
             try await api.approveStructuredPrompt(chapterID: chapter.id)
-            try await api.generateDraft(chapterID: chapter.id)
+            chapter.status = .structuredPromptApproved
+            unlock(.draftReview)
+            currentStep = .draftReview
+            streamedDraftText = ""
+            streamedWordCount = 0
+            streamedTokenUsage = [:]
+            draft = nil
+            auditSummary = nil
+            isDraftStreaming = true
+            statusMessage = "Writing Agent 正在生成正文。"
+            do {
+                try await api.generateDraftStream(chapterID: chapter.id) { event in
+                    await self.applyDraftStreamEvent(event)
+                }
+                if let draftStreamErrorMessage {
+                    throw APIError.transport(draftStreamErrorMessage)
+                }
+            } catch {
+                statusMessage = "流式生成失败，正在改用同步生成。"
+                streamedDraftText = ""
+                streamedWordCount = 0
+                streamedTokenUsage = [:]
+                draftStreamErrorMessage = nil
+                try await api.generateDraft(chapterID: chapter.id)
+            }
             let latestDraft = try await api.getLatestDraft(chapterID: chapter.id)
             draft = latestDraft
             auditSummary = latestDraft.auditSummary
@@ -497,21 +598,52 @@ public final class ChapterWorkflowStore {
             chapter.currentVersionId = latestDraft.id
             unlock(.draftReview)
             currentStep = .draftReview
+            await loadAgentRuns()
             statusMessage = "正文已生成。"
         } catch {
             handle(error)
         }
     }
 
+    public func loadAgentRuns() async {
+        do {
+            agentRuns = try await api.getAgentRuns(chapterID: chapter.id)
+        } catch {
+            agentRuns = []
+        }
+    }
+
+    public func loadCanonPatchIfNeeded() async {
+        guard canonPatch == nil else { return }
+        guard chapter.status == .canonPatchPending || chapter.status == .completed else { return }
+        isLoading = true
+        error = nil
+        defer { isLoading = false }
+        do {
+            canonPatch = try await api.getCanonUpdatePatch(chapterID: chapter.id)
+            await loadAgentRuns()
+        } catch {
+            handle(error)
+        }
+    }
+
     public func requestRevision() async {
+        guard !isRevisionRunning else {
+            statusMessage = "Revision Agent 正在运行。"
+            return
+        }
         guard !reviewFeedback.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             statusMessage = "请先填写修改意见。"
             return
         }
 
         isLoading = true
+        isRevisionRunning = true
         error = nil
-        defer { isLoading = false }
+        defer {
+            isLoading = false
+            isRevisionRunning = false
+        }
 
         do {
             let request = DraftReviewRequest(decision: .revise, feedback: reviewFeedback)
@@ -523,6 +655,7 @@ public final class ChapterWorkflowStore {
             chapter.currentVersionId = latestDraft.id
             currentStep = .draftReview
             unlock(.draftReview)
+            await loadAgentRuns()
             statusMessage = "已根据你的意见生成新版本。"
         } catch {
             handle(error)
@@ -565,6 +698,7 @@ public final class ChapterWorkflowStore {
             chapter.approvedVersionId = draft?.id
             unlock(.canonPatchReview)
             currentStep = .canonPatchReview
+            await loadAgentRuns()
             statusMessage = "基础文档更新已准备好。"
         } catch {
             handle(error)
@@ -657,6 +791,52 @@ public final class ChapterWorkflowStore {
         return try await api.getStructuredPrompt(chapterID: chapter.id)
     }
 
+    private func loadCurrentChapterArtifacts() async {
+        if structuredPrompt == nil, chapter.status != .draftInput, chapter.status != .imported {
+            structuredPrompt = try? await api.getStructuredPrompt(chapterID: chapter.id)
+        }
+        if draft == nil, let latestDraft = try? await api.getLatestDraft(chapterID: chapter.id) {
+            draft = latestDraft
+            auditSummary = latestDraft.auditSummary
+            chapter.currentVersionId = latestDraft.id
+        }
+        if canonPatch == nil, chapter.status == .canonPatchPending || chapter.status == .completed {
+            canonPatch = try? await api.getCanonUpdatePatch(chapterID: chapter.id)
+        }
+        await loadAgentRuns()
+    }
+
+    private func syncStepWithChapterStatus() {
+        let resolved = step(for: chapter.status)
+        if resolved.rawValue > highestUnlockedStep.rawValue {
+            highestUnlockedStep = resolved
+        }
+        if currentStep.rawValue > highestUnlockedStep.rawValue || currentStep == .promptInput {
+            currentStep = resolved
+        }
+    }
+
+    private func applyDraftStreamEvent(_ event: DraftStreamEvent) async {
+        switch event.event {
+        case "delta":
+            streamedDraftText += event.delta ?? ""
+            streamedWordCount = max(streamedWordCount, streamedDraftText.count)
+        case "word_count":
+            streamedWordCount = event.wordCount ?? streamedDraftText.count
+        case "tokens":
+            streamedTokenUsage = event.tokens ?? [:]
+        case "draft_id":
+            chapter.currentVersionId = event.draftId
+        case "error":
+            draftStreamErrorMessage = event.error?.message ?? "流式生成失败。"
+        case "done":
+            streamedWordCount = event.wordCount ?? streamedWordCount
+            chapter.currentVersionId = event.draftId ?? chapter.currentVersionId
+        default:
+            break
+        }
+    }
+
     private func activeChapter(from chapters: [Chapter], novel: Novel) -> Chapter? {
         if let current = novel.currentChapterNo,
            let matched = chapters.first(where: { $0.chapterNo == current }) {
@@ -705,6 +885,8 @@ public final class ChapterWorkflowStore {
 @Observable
 public final class BaseDocumentsStore {
     @ObservationIgnored private let api: any BaseDocumentsAPI
+    @ObservationIgnored private var loadedAt: Date?
+    @ObservationIgnored private var inflight: Task<Void, Never>?
 
     public var novelID: String
     public var currentCanonVersion: Int?
@@ -739,6 +921,7 @@ public final class BaseDocumentsStore {
     }
 
     public func switchNovel(novelID: String, currentCanonVersion: Int?, currentChapterNo: Int?) {
+        invalidate()
         self.novelID = novelID
         self.currentCanonVersion = currentCanonVersion
         self.currentChapterNo = currentChapterNo
@@ -751,18 +934,47 @@ public final class BaseDocumentsStore {
         error = nil
     }
 
+    public func loadIfNeeded(maxAge: TimeInterval = 60) async {
+        if let inflight {
+            await inflight.value
+            return
+        }
+        if let loadedAt, Date().timeIntervalSince(loadedAt) < maxAge {
+            return
+        }
+
+        let task = Task { @MainActor in
+            await self.loadDocuments(force: true)
+        }
+        inflight = task
+        await task.value
+        inflight = nil
+    }
+
+    public func invalidate() {
+        loadedAt = nil
+        inflight?.cancel()
+        inflight = nil
+    }
+
     public func loadDocuments(force: Bool = false) async {
         isLoading = true
         error = nil
         defer { isLoading = false }
 
         do {
+            let requestedNovelID = novelID
             async let worldBible = api.getWorldBibleSections(novelID: novelID)
             async let characters = api.getCharacterCards(novelID: novelID)
             async let memory = api.getMemoryFacts(novelID: novelID)
-            worldBibleSections = try await worldBible
-            characterCards = try await characters
-            memoryFacts = try await memory
+            let loadedWorldBible = try await worldBible
+            let loadedCharacters = try await characters
+            let loadedMemory = try await memory
+            guard requestedNovelID == novelID else { return }
+            worldBibleSections = loadedWorldBible
+            characterCards = loadedCharacters
+            memoryFacts = loadedMemory
+            loadedAt = Date()
             statusMessage = "基础文件已加载。"
         } catch {
             handle(error)
@@ -940,6 +1152,8 @@ public final class BaseDocumentsStore {
 @Observable
 public final class KnowledgeMatrixStore {
     @ObservationIgnored private let api: any KnowledgeMatrixAPI
+    @ObservationIgnored private var loadedAt: Date?
+    @ObservationIgnored private var inflight: Task<Void, Never>?
 
     public var novelID: String
     public var currentCanonVersion: Int?
@@ -963,7 +1177,7 @@ public final class KnowledgeMatrixStore {
     }
 
     public var characterFilterOptions: [String] {
-        Array(Set(entries.flatMap { $0.characterKnowledge.map(\.characterName) } + visibleCharacters)).sorted()
+        Array(Set(entries.flatMap { $0.characterVisibility.keys } + visibleCharacters)).sorted()
     }
 
     public var filteredEntries: [KnowledgeMatrixEntry] {
@@ -974,18 +1188,19 @@ public final class KnowledgeMatrixStore {
                 || entry.truthStatus.localizedCaseInsensitiveContains(filterText)
 
             let characterMatches = selectedCharacterName == nil
-                || entry.characterKnowledge.contains(where: { $0.characterName == selectedCharacterName })
+                || selectedCharacterName.flatMap { entry.visibility[$0] } != nil
 
             let stateMatches = selectedState == nil
                 || entry.authorKnowledge == selectedState
                 || entry.readerKnowledge == selectedState
-                || entry.characterKnowledge.contains(where: { $0.state == selectedState })
+                || entry.characterVisibility.values.contains(where: { $0 == selectedState })
 
             return textMatches && characterMatches && stateMatches
         }
     }
 
     public func switchNovel(novelID: String, currentCanonVersion: Int?) {
+        invalidate()
         self.novelID = novelID
         self.currentCanonVersion = currentCanonVersion
         entries = []
@@ -998,14 +1213,41 @@ public final class KnowledgeMatrixStore {
         error = nil
     }
 
+    public func loadIfNeeded(maxAge: TimeInterval = 60) async {
+        if let inflight {
+            await inflight.value
+            return
+        }
+        if let loadedAt, Date().timeIntervalSince(loadedAt) < maxAge {
+            return
+        }
+
+        let task = Task { @MainActor in
+            await self.loadEntries(force: true)
+        }
+        inflight = task
+        await task.value
+        inflight = nil
+    }
+
+    public func invalidate() {
+        loadedAt = nil
+        inflight?.cancel()
+        inflight = nil
+    }
+
     public func loadEntries(force: Bool = false) async {
         isLoading = true
         error = nil
         defer { isLoading = false }
 
         do {
-            entries = try await api.getKnowledgeMatrixEntries(novelID: novelID)
+            let requestedNovelID = novelID
+            let loadedEntries = try await api.getKnowledgeMatrixEntries(novelID: novelID)
+            guard requestedNovelID == novelID else { return }
+            entries = loadedEntries
             refreshVisibleCharacters()
+            loadedAt = Date()
             statusMessage = "Knowledge Matrix 已加载。"
         } catch {
             handle(error)
@@ -1025,9 +1267,7 @@ public final class KnowledgeMatrixStore {
                     truthStatus: "author_only",
                     authorKnowledge: .authorOnly,
                     readerKnowledge: .readerUnknown,
-                    characterKnowledge: visibleCharacters.map {
-                        CharacterKnowledge(characterId: "char_\($0)", characterName: $0, state: .unknown)
-                    },
+                    visibility: Dictionary(uniqueKeysWithValues: visibleCharacters.map { ($0, KnowledgeState.unknown) }),
                     allowedNarration: "",
                     canonVersion: currentCanonVersion ?? 1
                 ),
@@ -1080,12 +1320,12 @@ public final class KnowledgeMatrixStore {
 
     public func updateCharacterState(entryID: String, characterName: String, state: KnowledgeState) {
         guard
-            let entryIndex = entries.firstIndex(where: { $0.id == entryID }),
-            let characterIndex = entries[entryIndex].characterKnowledge.firstIndex(where: { $0.characterName == characterName })
+            let entryIndex = entries.firstIndex(where: { $0.id == entryID })
         else {
             return
         }
-        entries[entryIndex].characterKnowledge[characterIndex].state = state
+        entries[entryIndex].visibility[characterName] = state
+        refreshVisibleCharacters()
     }
 
     private func refreshVisibleCharacters() {
