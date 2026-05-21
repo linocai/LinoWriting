@@ -18,13 +18,15 @@ class ContextCompilerAgent:
             prompt = agent_input.user_prompt or ""
             active_entities = context_payload.get("active_entities") or []
             focus_entities = [name for name in active_entities if name and name in prompt] or active_entities[:5]
+            style_directives = context_payload.get("style_directives") or []
+            risk_notes = [
+                "不新增命名角色",
+                "不让旁白确认 Knowledge Matrix 中读者未知的信息",
+            ]
+            risk_notes.extend(str(directive) for directive in style_directives if directive)
             context_payload["llm_summary"] = {
-                "summary": "本章上下文已按基础文件编译；生成时必须遵守人物白名单、知识边界和校园规则。",
-                "risk_notes": [
-                    "不新增命名角色",
-                    "不让旁白确认 Knowledge Matrix 中读者未知的信息",
-                    "校园/未成年人语境只允许非露骨的情绪、关系和边界描写",
-                ],
+                "summary": "本章上下文已按基础文件编译；生成时必须遵守人物白名单、知识边界和 World Bible 风格约束。",
+                "risk_notes": risk_notes,
                 "focus_entities": focus_entities,
             }
             return AgentResult(

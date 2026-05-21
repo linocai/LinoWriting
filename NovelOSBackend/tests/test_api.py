@@ -1132,6 +1132,22 @@ def test_deterministic_safety_audit_flags_illegal_names_and_knowledge_leaks(clie
     session_factory = client.app.state.testing_session_factory
     with session_factory() as session:
         chapter = session.scalar(select(ChapterModel).where(ChapterModel.id == "chapter_004"))
+        structured = dict(chapter.structured_prompt or {})
+        structured["forbidden_named_entities"] = ["D"]
+        structured["mention_allowed_entities"] = [
+            {"name": "A 的母亲", "budget": 1, "form": "brief_memory"}
+        ]
+        chapter.structured_prompt = structured
+        leak_entry = session.scalar(
+            select(KnowledgeMatrixEntryModel).where(
+                KnowledgeMatrixEntryModel.novel_id == chapter.novel_id
+            )
+        )
+        if leak_entry is not None:
+            narration = dict(leak_entry.allowed_narration or {})
+            narration["forbidden_phrases"] = ["旧案真正凶手"]
+            leak_entry.allowed_narration = narration
+        session.flush()
         draft = DraftModel(
             id="draft_safety_v1",
             chapter_id=chapter.id,
@@ -1164,6 +1180,86 @@ def test_deterministic_safety_audit_flags_illegal_names_and_knowledge_leaks(clie
         session.add(geometry_draft)
         geometry_report = run_audit_pipeline(session, chapter, geometry_draft, timestamp_prefix="13:01")
         assert geometry_report.summary["illegal_named_entity_count"] == 0
+
+
+def test_no_hardcoded_demo_strings_in_live_paths():
+    """Guard: live-mode code paths must not contain leftover demo strings from
+    the design doc examples (旧案 / A 的母亲 / D / 校园-未成年人 etc.)."""
+    app_dir = Path(__file__).resolve().parents[1] / "app"
+    forbidden_patterns = [
+        "旧案",
+        "A 的母亲",
+        "校园或未成年人语境",
+        "成人化凝视",
+        "旧案真正凶手",
+        "完整真相是",
+        "B 就是凶手",
+        "A cannot know the full truth",
+        "Narration cannot confirm",
+    ]
+    # Files allowed to keep demo strings (fixtures / mock-mode-only fallbacks).
+    allowed_files = {
+        app_dir / "mock_data.py",
+        app_dir / "agents" / "intent_parser.py",  # mock-mode fallback only
+        app_dir / "agents" / "extraction_agent.py",  # mock-mode fallback only
+    }
+    offenders: list[str] = []
+    for path in app_dir.rglob("*.py"):
+        if path in allowed_files:
+            continue
+        text = path.read_text(encoding="utf-8")
+        for pattern in forbidden_patterns:
+            if pattern in text:
+                offenders.append(f"{path.relative_to(app_dir.parent)}: {pattern}")
+    assert not offenders, "Leftover demo strings in live paths:\n" + "\n".join(offenders)
+
+
+def test_build_context_pack_injects_world_bible_directives(client: TestClient):
+    """World Bible sections with section_key in (tone_and_style, forbidden_patterns)
+    must surface as style_directives in the compiled Context Pack."""
+    from app.services import build_context_pack
+
+    session_factory = client.app.state.testing_session_factory
+    with session_factory() as session:
+        chapter = session.scalar(select(ChapterModel).where(ChapterModel.id == "chapter_004"))
+        novel_id = chapter.novel_id
+        session.add(
+            WorldBibleSectionModel(
+                id="wb_tone_test",
+                novel_id=novel_id,
+                section_key="tone_and_style",
+                title="文风",
+                content="整体克制、冷静，避免夸张抒情。",
+                tags=["style"],
+                importance="high",
+                activation_policy="always_considered",
+                canon_version=1,
+                updated_at=800000010,
+            )
+        )
+        session.add(
+            WorldBibleSectionModel(
+                id="wb_forbidden_test",
+                novel_id=novel_id,
+                section_key="forbidden_patterns",
+                title="禁用写法",
+                content="禁止百科式旁白解释人物过去。",
+                tags=["style", "forbidden"],
+                importance="high",
+                activation_policy="always_in_context_brief",
+                canon_version=1,
+                updated_at=800000011,
+            )
+        )
+        session.flush()
+        pack = build_context_pack(session, chapter)
+        directives = pack.get("style_directives") or []
+        assert "整体克制、冷静，避免夸张抒情。" in directives
+        assert "禁止百科式旁白解释人物过去。" in directives
+        # Hardcoded demo strings must NOT appear in allowed_named_entities
+        allowed = pack.get("allowed_named_entities") or []
+        assert "旧案" not in allowed
+        assert "A 的母亲" not in allowed
 
 
 def test_alembic_migration_upgrade_and_downgrade(tmp_path):

@@ -35,7 +35,7 @@ def deterministic_audit_summary(
     summary = _empty_summary() if base_summary is None else _copy_summary(base_summary)
     issues: list[dict[str, Any]] = list(summary.get("issues", []))
 
-    forbidden_names = context_payload.get("forbidden_named_entities") or ["D", "陌生角色", "新角色"]
+    forbidden_names = context_payload.get("forbidden_named_entities") or []
     illegal_names = [name for name in forbidden_names if name and _contains_forbidden_name(str(name), draft_text)]
     if illegal_names:
         issues.append(
@@ -69,19 +69,20 @@ def deterministic_audit_summary(
                 summary.get("inactive_character_appearance_count", 0)
             ) + 1
 
-    leak_markers = ["旧案真正凶手", "完整真相是", "B 就是凶手"]
-    if any(marker in draft_text for marker in leak_markers):
+    leak_markers = context_payload.get("knowledge_leak_markers") or []
+    triggered_markers = [marker for marker in leak_markers if marker and str(marker) in draft_text]
+    if triggered_markers:
         issues.append(
             {
                 "id": "audit_s0_knowledge_leak",
                 "severity": "S0",
-                "type": "旧案真相泄露",
+                "type": "知识泄露",
                 "location": "全文",
-                "message": "正文直接确认了当前章节不应公开的旧案真相。",
+                "message": f"正文出现了 Knowledge Matrix 标注为禁用的表述：{', '.join(triggered_markers)}。",
                 "suggestion": "改为角色怀疑、观察或误导，不让旁白确认真相。",
             }
         )
-        summary["knowledge_violation_count"] = int(summary.get("knowledge_violation_count", 0)) + 1
+        summary["knowledge_violation_count"] = int(summary.get("knowledge_violation_count", 0)) + len(triggered_markers)
 
     s0_count = sum(1 for issue in issues if issue.get("severity") == "S0")
     summary["issues"] = issues

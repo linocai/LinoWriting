@@ -19,18 +19,25 @@ class WritingAgent:
             structured_prompt = agent_input.payload.get("structured_prompt") or {}
             context_payload = agent_input.payload.get("context_payload") or {}
             target_word_count = getattr(chapter, "target_word_count", 3000)
+            style_directives = context_payload.get("style_directives") or []
+            directives_block = ""
+            if style_directives:
+                directives_block = (
+                    "\n\n本书 World Bible 题材与文风约束（必须遵守）：\n- "
+                    + "\n- ".join(str(d) for d in style_directives if d)
+                )
             result = self.gateway.complete_text(
                 (
                     f"目标字数：约 {target_word_count} 字。\n\n"
                     f"结构化 Prompt：{structured_prompt}\n\n"
-                    f"Context Pack：{context_payload}\n\n"
+                    f"Context Pack：{context_payload}"
+                    f"{directives_block}\n\n"
                     "请直接输出正文，不要附加解释。"
                 ),
                 system=(
                     "你是长篇小说正文写作 Agent。必须遵守 Context Pack 的人物白名单、"
                     "知识边界和结构化 Prompt。不要新增命名角色，不要提前泄露真相。"
-                    "如人物处于校园或未成年人语境，只能写非露骨的情绪、关系和边界试探，"
-                    "不得描写性行为、露骨性细节或成人化凝视。"
+                    "遵守 Context Pack 中 style_directives 字段给出的题材规则（来自本书 World Bible）。"
                 ),
                 metadata={"agent": self.name, "chapter_id": agent_input.chapter_id},
             )

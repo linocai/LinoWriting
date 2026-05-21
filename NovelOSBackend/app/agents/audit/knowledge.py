@@ -9,12 +9,11 @@ class KnowledgeAuditorAgent:
 
     def run(self, agent_input: AgentInput) -> AgentResult:
         summary = agent_input.payload["summary"]
+        context_payload = agent_input.payload.get("context_payload") or {}
+        checked_limits = list(context_payload.get("knowledge_limits") or [])
         result = {
             "knowledge_violation_count": summary["knowledge_violation_count"],
-            "checked_limits": [
-                "A cannot know the full truth of the old case",
-                "Narration cannot confirm B's full involvement",
-            ],
+            "checked_limits": checked_limits,
             "passed": summary["knowledge_violation_count"] == 0,
         }
         return AgentResult(

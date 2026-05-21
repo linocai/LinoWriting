@@ -25,7 +25,7 @@ struct KnowledgeMatrixView: View {
                             }
                         }
                         .buttonStyle(BlueButtonStyle())
-                        .disabled(store.isSaving)
+                        SaveStatusBadge(isSaving: store.isSaving, lastSavedAt: store.lastSavedAt)
                     }
                 }
 
@@ -86,13 +86,16 @@ struct KnowledgeMatrixView: View {
                         subtitle: "按作者、读者和角色分别记录可知信息，避免正文提前泄露真相。"
                     )
                     CardBody {
+                        if store.characterFilterOptions.count > 4 {
+                            columnPinControls
+                        }
                         ScrollView(.horizontal) {
                             Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
                                 GridRow {
                                     matrixHeader("事实 / 秘密", width: 240)
                                     matrixHeader("作者", width: 126)
                                     matrixHeader("读者", width: 126)
-                                    ForEach(store.visibleCharacters, id: \.self) { name in
+                                    ForEach(store.displayedCharacters, id: \.self) { name in
                                         matrixHeader(name, width: 126)
                                     }
                                     matrixHeader("允许叙述", width: 320)
@@ -104,7 +107,7 @@ struct KnowledgeMatrixView: View {
                                         factCell(entry.id, isEven: index.isMultiple(of: 2))
                                         stateCell(authorKnowledgeBinding(entry.id), isEven: index.isMultiple(of: 2))
                                         stateCell(readerKnowledgeBinding(entry.id), isEven: index.isMultiple(of: 2))
-                                        ForEach(store.visibleCharacters, id: \.self) { name in
+                                        ForEach(store.displayedCharacters, id: \.self) { name in
                                             stateCell(characterStateBinding(entry.id, characterName: name), isEven: index.isMultiple(of: 2))
                                         }
                                         narrationCell(entry.id, isEven: index.isMultiple(of: 2))
@@ -202,6 +205,58 @@ struct KnowledgeMatrixView: View {
 
     private func rowBackground(_ isEven: Bool) -> Color {
         isEven ? Color.white.opacity(0.56) : AppTheme.panelSubtle
+    }
+
+    private var columnPinControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(store.pinnedColumns.isEmpty ? "默认显示前 4 个最活跃角色列" : "已固定 \(store.pinnedColumns.count) 列")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.muted)
+                Spacer()
+                if !store.pinnedColumns.isEmpty {
+                    Button {
+                        store.clearColumnPins()
+                    } label: {
+                        Label("重置为默认", systemImage: "arrow.uturn.backward")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(AppTheme.blue)
+                }
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(store.characterFilterOptions, id: \.self) { name in
+                        let isPinned = store.pinnedColumns.contains(name)
+                        Button {
+                            store.toggleColumnPin(name)
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: isPinned ? "pin.fill" : "pin")
+                                    .font(.system(size: 10, weight: .semibold))
+                                Text(name).font(.caption.weight(.semibold))
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(
+                                isPinned ? AppTheme.blue.opacity(0.18) : Color.white.opacity(0.66),
+                                in: RoundedRectangle(cornerRadius: 999, style: .continuous)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 999, style: .continuous)
+                                    .stroke(isPinned ? AppTheme.blue.opacity(0.5) : AppTheme.line, lineWidth: 1)
+                            )
+                            .foregroundStyle(isPinned ? AppTheme.blue : AppTheme.text)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        }
+        .padding(.bottom, 6)
     }
 
     private func factTitleBinding(_ id: String) -> Binding<String> {

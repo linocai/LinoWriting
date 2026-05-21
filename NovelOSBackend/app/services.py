@@ -687,32 +687,45 @@ def build_context_pack(session: Session, chapter: ChapterModel) -> dict:
 
     active_entities = [character.name for character in characters if not character.do_not_auto_mention]
     location_names = sorted({fact.location for fact in memory_facts if fact.location})
-    allowed_names = [*active_entities, *location_names, "旧案", "A 的母亲"]
-    knowledge_limits = []
+    allowed_names = [*active_entities, *location_names]
+    knowledge_limits: list[str] = []
+    knowledge_leak_markers: list[str] = []
     for entry in knowledge_entries:
         narration = entry.allowed_narration
         if isinstance(narration, dict):
             text = narration.get("text") or narration.get("summary")
+            forbidden_phrases = narration.get("forbidden_phrases") or []
+            if isinstance(forbidden_phrases, list):
+                knowledge_leak_markers.extend(str(p) for p in forbidden_phrases if p)
         else:
-            text = str(narration)
+            text = str(narration) if narration else None
         if text:
             knowledge_limits.append(text)
 
-    forbidden_named_entities = ["陌生角色", "新角色"]
-    if chapter.novel_id == mock_data.NOVEL["id"]:
-        forbidden_named_entities.insert(0, "D")
+    style_directives: list[str] = []
+    for section in world_sections:
+        if section.section_key in ("tone_and_style", "forbidden_patterns") and section.content:
+            style_directives.append(section.content)
+
+    structured = chapter.structured_prompt or {}
+    if isinstance(structured, dict):
+        mention_allowed_entities = structured.get("mention_allowed_entities") or []
+        forbidden_named_entities = structured.get("forbidden_named_entities") or []
+    else:
+        mention_allowed_entities = []
+        forbidden_named_entities = []
 
     return {
         "chapter_no": chapter.chapter_no,
         "canon_version": chapter.canon_version_used or 1,
         "allowed_named_entities": allowed_names,
         "active_entities": active_entities,
-        "mention_allowed_entities": [
-            {"name": "A 的母亲", "budget": 1, "form": "brief_memory"}
-        ],
+        "mention_allowed_entities": mention_allowed_entities,
         "new_entity_policy": "allow_minor_unnamed_only",
         "knowledge_limits": knowledge_limits,
+        "knowledge_leak_markers": knowledge_leak_markers,
         "forbidden_named_entities": forbidden_named_entities,
+        "style_directives": style_directives,
         "world_bible": [
             {"title": section.title, "content": section.content, "tags": section.tags}
             for section in world_sections
@@ -1128,18 +1141,25 @@ def _draft_version_for_new_generation(session: Session, chapter_id: str) -> int:
 
 def _writing_prompt_payload(chapter: ChapterModel, structured_prompt: dict, context_payload: dict) -> dict:
     target_word_count = getattr(chapter, "target_word_count", 3000)
+    style_directives = context_payload.get("style_directives") or []
+    directives_block = ""
+    if style_directives:
+        directives_block = (
+            "\n\n本书 World Bible 题材与文风约束（必须遵守）：\n- "
+            + "\n- ".join(str(d) for d in style_directives if d)
+        )
     return {
         "prompt": (
             f"目标字数：约 {target_word_count} 字。\n\n"
             f"结构化 Prompt：{structured_prompt}\n\n"
-            f"Context Pack：{context_payload}\n\n"
+            f"Context Pack：{context_payload}"
+            f"{directives_block}\n\n"
             "请直接输出正文，不要附加解释。"
         ),
         "system": (
             "你是长篇小说正文写作 Agent。必须遵守 Context Pack 的人物白名单、"
             "知识边界和结构化 Prompt。不要新增命名角色，不要提前泄露真相。"
-            "如人物处于校园或未成年人语境，只能写非露骨的情绪、关系和边界试探，"
-            "不得描写性行为、露骨性细节或成人化凝视。"
+            "遵守 Context Pack 中 style_directives 字段给出的题材规则（来自本书 World Bible）。"
         ),
         "metadata": {"agent": "Writing Agent", "chapter_id": chapter.id},
         "structured_prompt": structured_prompt,
@@ -1426,10 +1446,7 @@ def audit_result_payload(draft: DraftModel, auditor: str) -> dict:
     if auditor == "knowledge":
         return {
             "knowledge_violation_count": summary["knowledge_violation_count"],
-            "checked_limits": [
-                "A cannot know the full truth of the old case",
-                "Narration cannot confirm B's full involvement",
-            ],
+            "checked_limits": list(summary.get("checked_limits") or []),
             "passed": summary["knowledge_violation_count"] == 0,
         }
     return {
@@ -1525,6 +1542,8 @@ def create_revision(session: Session, chapter: ChapterModel, feedback: str | Non
     next_version = current.version_no + 1
     chapter_number = f"{chapter.chapter_no:03}"
     if config.llm_mode() == "live":
+        context_pack = latest_context_pack(session, chapter.id)
+        context_payload = context_pack.payload if context_pack else build_context_pack(session, chapter)
         try:
             result = ChapterWorkflowOrchestrator().run_revision(
                 novel_id=chapter.novel_id,
@@ -1532,6 +1551,7 @@ def create_revision(session: Session, chapter: ChapterModel, feedback: str | Non
                 current=current,
                 revision=None,
                 feedback=feedback,
+                context_payload=context_payload,
             )
         except LLMGatewayError as exc:
             fail_agent_run(

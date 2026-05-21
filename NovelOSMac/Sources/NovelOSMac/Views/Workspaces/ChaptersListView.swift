@@ -102,14 +102,21 @@ struct ChaptersListView: View {
             if let chapter = selectedChapter {
                 let draft = chapterStore.chapterDrafts[chapter.id]
                 CardHeader(title: readerTitle(for: chapter), subtitle: readerSubtitle(for: chapter, draft: draft)) {
-                    if chapter.id == chapterStore.chapter.id {
-                        Button {
+                    Button {
+                        let targetID = chapter.id
+                        if targetID == chapterStore.chapter.id {
                             appStore.selectedWorkspace = .chapterStudio
-                        } label: {
-                            Label("打开工作台", systemImage: "arrow.right.circle.fill")
+                        } else {
+                            Task {
+                                await chapterStore.switchActiveChapter(toID: targetID)
+                                appStore.selectedChapterID = targetID
+                                appStore.selectedWorkspace = .chapterStudio
+                            }
                         }
-                        .buttonStyle(GhostButtonStyle())
+                    } label: {
+                        Label("打开工作台", systemImage: "arrow.right.circle.fill")
                     }
+                    .buttonStyle(GhostButtonStyle())
                 }
                 CardBody {
                     if let draft {

@@ -27,7 +27,7 @@ struct BaseFilesView: View {
                             }
                         }
                         .buttonStyle(BlueButtonStyle())
-                        .disabled(store.isSaving)
+                        SaveStatusBadge(isSaving: store.isSaving, lastSavedAt: store.lastSavedAt)
                     }
                 }
 
@@ -318,8 +318,20 @@ struct BaseFilesView: View {
         ) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .top, spacing: 10) {
-                    Stepper("第 \(fact.wrappedValue.chapterNo) 章", value: fact.chapterNo, in: 1...999)
+                    LabeledField("章节") {
+                        TextField(
+                            "章节号",
+                            value: fact.chapterNo,
+                            format: .number.precision(.integerLength(1...3))
+                        )
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 72)
                         .font(.callout.weight(.semibold))
+                        .onChange(of: fact.wrappedValue.chapterNo) { _, newValue in
+                            if newValue < 1 { fact.chapterNo.wrappedValue = 1 }
+                            if newValue > 999 { fact.chapterNo.wrappedValue = 999 }
+                        }
+                    }
                     LabeledField("类型") {
                         SoftTextField(title: "类型", text: fact.factType)
                     }

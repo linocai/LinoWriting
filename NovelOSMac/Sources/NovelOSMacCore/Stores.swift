@@ -413,6 +413,38 @@ public final class ChapterWorkflowStore {
         statusMessage = "Prompt 草稿已保存。"
     }
 
+    public func switchActiveChapter(toID chapterID: String) async {
+        guard chapterID != chapter.id,
+              let target = chapters.first(where: { $0.id == chapterID }) else {
+            return
+        }
+        chapter = target
+        promptDraft = ""
+        structuredPrompt = nil
+        draft = chapterDrafts[target.id]
+        auditSummary = draft?.auditSummary
+        canonPatch = nil
+        agentRuns = []
+        reviewFeedback = ""
+        isDraftStreaming = false
+        streamedDraftText = ""
+        streamedWordCount = 0
+        streamedTokenUsage = [:]
+        draftStreamErrorMessage = nil
+        isRevisionRunning = false
+        selectedReadableChapterID = target.id
+        currentStep = step(for: target.status)
+        highestUnlockedStep = currentStep
+        await loadCurrentChapterArtifacts()
+        syncStepWithChapterStatus()
+        statusMessage = "已切换到第 \(target.chapterNo) 章。"
+    }
+
+    public func refreshActiveChapterArtifacts() async {
+        await loadCurrentChapterArtifacts()
+        syncStepWithChapterStatus()
+    }
+
     public func switchToNovel(_ selectedNovel: Novel, chapters loadedChapters: [Chapter]) async {
         invalidate()
         novel = selectedNovel
@@ -898,6 +930,7 @@ public final class BaseDocumentsStore {
     public var isSaving: Bool = false
     public var isIndexing: Bool = false
     public var isLoading: Bool = false
+    public var lastSavedAt: Date?
     public var statusMessage: String?
     public var error: APIError?
     public var memoryChapterFilter: String = ""
@@ -1135,6 +1168,7 @@ public final class BaseDocumentsStore {
             worldBibleSections = savedSections
             characterCards = savedCharacters
             memoryFacts = savedMemory
+            lastSavedAt = Date()
             statusMessage = "基础文件已保存，检索索引已更新。"
         } catch {
             handle(error)
@@ -1163,8 +1197,10 @@ public final class KnowledgeMatrixStore {
     public var selectedState: KnowledgeState?
     public var selectedCharacterName: String?
     public var selectedEntryID: String?
+    public var pinnedColumns: Set<String> = []
     public var isLoading: Bool = false
     public var isSaving: Bool = false
+    public var lastSavedAt: Date?
     public var statusMessage: String?
     public var error: APIError?
 
@@ -1178,6 +1214,40 @@ public final class KnowledgeMatrixStore {
 
     public var characterFilterOptions: [String] {
         Array(Set(entries.flatMap { $0.characterVisibility.keys } + visibleCharacters)).sorted()
+    }
+
+    /// Columns actually rendered in the matrix grid. If the user has pinned a subset
+    /// via `pinnedColumns`, render only those; otherwise cap at the first 4 most-used
+    /// characters to avoid the "horizontal scroll forever" feel when there are many.
+    public var displayedCharacters: [String] {
+        let all = characterFilterOptions
+        if !pinnedColumns.isEmpty {
+            return all.filter { pinnedColumns.contains($0) }
+        }
+        let usageCount: [String: Int] = entries.reduce(into: [:]) { acc, entry in
+            for name in entry.characterVisibility.keys {
+                acc[name, default: 0] += 1
+            }
+        }
+        let ranked = all.sorted { lhs, rhs in
+            let lc = usageCount[lhs] ?? 0
+            let rc = usageCount[rhs] ?? 0
+            if lc != rc { return lc > rc }
+            return lhs < rhs
+        }
+        return Array(ranked.prefix(4))
+    }
+
+    public func toggleColumnPin(_ name: String) {
+        if pinnedColumns.contains(name) {
+            pinnedColumns.remove(name)
+        } else {
+            pinnedColumns.insert(name)
+        }
+    }
+
+    public func clearColumnPins() {
+        pinnedColumns.removeAll()
     }
 
     public var filteredEntries: [KnowledgeMatrixEntry] {
@@ -1312,6 +1382,7 @@ public final class KnowledgeMatrixStore {
             }
             entries = savedEntries
             refreshVisibleCharacters()
+            lastSavedAt = Date()
             statusMessage = "Knowledge Matrix 已保存。"
         } catch {
             handle(error)

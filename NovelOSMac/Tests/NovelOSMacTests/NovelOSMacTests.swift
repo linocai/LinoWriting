@@ -155,6 +155,54 @@ import Foundation
     #expect(store.agentRuns.isEmpty == false)
 }
 
+@MainActor
+@Test func switchActiveChapterClearsAndReloadsArtifacts() async throws {
+    let store = ChapterWorkflowStore(api: MockChapterWorkflowAPI())
+    await store.loadReadableChapters()
+    let firstImported = try #require(store.chapters.first { $0.chapterNo == 1 })
+    let originalChapterID = store.chapter.id
+    #expect(firstImported.id != originalChapterID)
+
+    await store.switchActiveChapter(toID: firstImported.id)
+
+    #expect(store.chapter.id == firstImported.id)
+    #expect(store.selectedReadableChapterID == firstImported.id)
+    #expect(store.canonPatch == nil)
+    #expect(store.streamedDraftText.isEmpty)
+    #expect(store.statusMessage?.contains("第 1 章") == true)
+}
+
+@MainActor
+@Test func baseDocumentsSaveStampsLastSavedAt() async throws {
+    let store = BaseDocumentsStore(api: MockBaseDocumentsAPI())
+    await store.loadIfNeeded()
+    #expect(store.lastSavedAt == nil)
+
+    await store.saveChanges()
+
+    #expect(store.lastSavedAt != nil)
+    #expect(store.error == nil)
+}
+
+@MainActor
+@Test func knowledgeMatrixColumnPinControlsDisplayedCharacters() async throws {
+    let store = KnowledgeMatrixStore(api: MockKnowledgeMatrixAPI())
+    await store.loadIfNeeded()
+    let allOptions = store.characterFilterOptions
+
+    // No pins → at most 4 columns shown by default.
+    #expect(store.displayedCharacters.count <= 4)
+    #expect(store.displayedCharacters.allSatisfy { allOptions.contains($0) })
+
+    // Pinning a subset filters the displayed columns to that subset.
+    if let first = allOptions.first {
+        store.toggleColumnPin(first)
+        #expect(store.displayedCharacters == [first])
+        store.clearColumnPins()
+        #expect(store.pinnedColumns.isEmpty)
+    }
+}
+
 @Test func codableFixturesDecode() throws {
     let novel = try decodeFixture("MockNovel", as: Novel.self)
     let prompt = try decodeFixture("MockStructuredPrompt", as: StructuredPrompt.self)

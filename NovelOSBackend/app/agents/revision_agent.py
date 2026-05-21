@@ -16,17 +16,25 @@ class RevisionAgent:
         current = agent_input.payload["current"]
         revision = agent_input.payload["revision"]
         feedback = agent_input.payload.get("feedback") or ""
+        context_payload = agent_input.payload.get("context_payload") or {}
         if config.llm_mode() == "live" and revision is None:
+            style_directives = context_payload.get("style_directives") or []
+            directives_block = ""
+            if style_directives:
+                directives_block = (
+                    "\n\n本书 World Bible 题材与文风约束（必须遵守）：\n- "
+                    + "\n- ".join(str(d) for d in style_directives if d)
+                )
             result = self.gateway.complete_text(
                 (
                     f"当前正文：\n{current.text}\n\n"
-                    f"用户修改意见：{feedback}\n\n"
+                    f"用户修改意见：{feedback}"
+                    f"{directives_block}\n\n"
                     "请输出修改后的完整正文，不要附加解释。"
                 ),
                 system=(
                     "你是长篇小说修订 Agent。必须保留 canon 约束，并严格回应用户反馈。"
-                    "如人物处于校园或未成年人语境，只能写非露骨的情绪、关系和边界试探，"
-                    "不得描写性行为、露骨性细节或成人化凝视。"
+                    "遵守 user prompt 中 World Bible 题材与文风约束。"
                 ),
                 metadata={"agent": self.name, "chapter_id": agent_input.chapter_id},
             )

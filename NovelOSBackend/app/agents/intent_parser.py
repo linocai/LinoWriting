@@ -22,8 +22,10 @@ class IntentParserAgent:
                 "不新增命名角色",
                 "不泄露角色未知信息",
             ]
-            if "露骨" in prompt or "性" in prompt or "越界" in prompt:
-                must_not_happen.append("禁止露骨性描写、性行为和成人化凝视")
+            style_directives = context_payload.get("style_directives") or []
+            for directive in style_directives:
+                if directive:
+                    must_not_happen.append(str(directive))
             payload = {
                 "prompt": prompt,
                 "entities": entities,

@@ -390,6 +390,53 @@ struct StatusBanner: View {
     }
 }
 
+/// Compact inline indicator that shows "保存中…" while a save is in flight and
+/// "✓ 已保存" for ~3s after a successful save. Designed to sit next to a save
+/// button so the user gets instant feedback without disabling the control.
+struct SaveStatusBadge: View {
+    let isSaving: Bool
+    let lastSavedAt: Date?
+
+    @State private var now: Date = Date()
+
+    private var recentlySaved: Bool {
+        guard let lastSavedAt else { return false }
+        return now.timeIntervalSince(lastSavedAt) < 3.0
+    }
+
+    var body: some View {
+        Group {
+            if isSaving {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("保存中…")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.muted)
+                }
+            } else if recentlySaved {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(AppTheme.green)
+                    Text("已保存")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.green)
+                }
+                .transition(.opacity)
+            } else {
+                Color.clear.frame(width: 0, height: 0)
+            }
+        }
+        .animation(AppTheme.Motion.easeOut, value: isSaving)
+        .animation(AppTheme.Motion.easeOut, value: recentlySaved)
+        .task(id: lastSavedAt) {
+            guard lastSavedAt != nil else { return }
+            now = Date()
+            try? await Task.sleep(nanoseconds: 3_100_000_000)
+            now = Date()
+        }
+    }
+}
+
 struct SoftTextEditor: View {
     @Binding var text: String
     var placeholder: String = ""

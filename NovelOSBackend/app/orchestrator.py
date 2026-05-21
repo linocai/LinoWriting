@@ -71,12 +71,18 @@ class ChapterWorkflowOrchestrator:
         current: Any,
         revision: Any,
         feedback: str | None,
+        context_payload: dict[str, Any] | None = None,
     ) -> AgentResult:
         return RevisionAgent(self.gateway).run(
             AgentInput(
                 novel_id=novel_id,
                 chapter_id=chapter_id,
-                payload={"current": current, "revision": revision, "feedback": feedback or ""},
+                payload={
+                    "current": current,
+                    "revision": revision,
+                    "feedback": feedback or "",
+                    "context_payload": context_payload or {},
+                },
             )
         )
 
@@ -99,7 +105,11 @@ class ChapterWorkflowOrchestrator:
             novel_id=novel_id,
             chapter_id=chapter_id,
             draft_text=draft_text,
-            payload={"draft_id": draft_id, "summary": summary},
+            payload={
+                "draft_id": draft_id,
+                "summary": summary,
+                "context_payload": context_payload,
+            },
         )
         return summary, [
             NamedEntityAuditorAgent().run(agent_input),

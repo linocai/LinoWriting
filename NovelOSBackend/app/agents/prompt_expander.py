@@ -48,10 +48,19 @@ class PromptExpanderAgent:
 
     def run(self, agent_input: AgentInput) -> AgentResult:
         if config.llm_mode() == "live":
+            context_payload = agent_input.payload.get("context_payload", {}) or {}
+            style_directives = context_payload.get("style_directives") or []
+            directives_hint = ""
+            if style_directives:
+                joined = "; ".join(str(d) for d in style_directives if d)
+                directives_hint = (
+                    f"本书 World Bible 题材与文风约束：{joined}。"
+                    "must_not_happen 必须显式包含这些约束的反向条目。"
+                )
             result = self.gateway.complete_structured(
                 (
                     f"用户本章方向：{agent_input.user_prompt or ''}\n\n"
-                    f"Context Pack：{agent_input.payload.get('context_payload', {})}"
+                    f"Context Pack：{context_payload}"
                 ),
                 schema_name="structured_prompt",
                 schema=StructuredPromptSchema,
@@ -60,7 +69,7 @@ class PromptExpanderAgent:
                     "chapter_goal string, must_happen string[], must_not_happen string[], "
                     "allowed_named_entities [{name, activation, mention_budget}], narrative_style string, "
                     "activation_summary {active_cast, allowed_names_count, mention_budget_total, new_named_character_policy}, version number."
-                    "如果是校园或未成年人语境，must_not_happen 必须包含禁止露骨性描写、性行为和成人化凝视。"
+                    f"{directives_hint}"
                 ),
                 metadata={"agent": self.name, "chapter_id": agent_input.chapter_id},
             )

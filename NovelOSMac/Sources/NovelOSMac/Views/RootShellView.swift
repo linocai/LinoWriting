@@ -51,6 +51,18 @@ struct RootShellView: View {
                 knowledgeStore: knowledgeStore
             )
         }
+        .onChange(of: appStore.selectedWorkspace) { _, newValue in
+            if newValue == .chapterStudio {
+                Task { await chapterStore.refreshActiveChapterArtifacts() }
+            }
+        }
+        .onChange(of: appStore.selectedChapterID) { _, newValue in
+            guard let newValue, newValue != chapterStore.chapter.id else { return }
+            Task { await chapterStore.switchActiveChapter(toID: newValue) }
+        }
+        .overlay(alignment: .topTrailing) {
+            ToasterOverlay()
+        }
     }
 }
 
@@ -650,6 +662,116 @@ private struct ShortcutRow: View {
                         )
                 }
             }
+        }
+    }
+}
+
+struct ToasterOverlay: View {
+    @Environment(AppStore.self) private var appStore
+    @Environment(NovelLibraryStore.self) private var novelLibraryStore
+    @Environment(ChapterWorkflowStore.self) private var chapterStore
+    @Environment(BaseDocumentsStore.self) private var baseDocumentsStore
+    @Environment(KnowledgeMatrixStore.self) private var knowledgeStore
+
+    var body: some View {
+        @Bindable var appStore = appStore
+
+        Group {
+            if let toast = appStore.toast {
+                ToastBubble(toast: toast) {
+                    appStore.toast = nil
+                }
+                .id(toast.id)
+                .padding(.top, 56)
+                .padding(.trailing, 24)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .task(id: toast.id) {
+                    try? await Task.sleep(nanoseconds: 3_500_000_000)
+                    if appStore.toast?.id == toast.id {
+                        appStore.toast = nil
+                    }
+                }
+            } else {
+                EmptyView()
+            }
+        }
+        .animation(AppTheme.Motion.easeOut, value: appStore.toast?.id)
+        .onChange(of: novelLibraryStore.error) { _, newValue in
+            forward(newValue)
+        }
+        .onChange(of: chapterStore.error) { _, newValue in
+            forward(newValue)
+        }
+        .onChange(of: baseDocumentsStore.error) { _, newValue in
+            forward(newValue)
+        }
+        .onChange(of: knowledgeStore.error) { _, newValue in
+            forward(newValue)
+        }
+    }
+
+    private func forward(_ error: APIError?) {
+        guard let error else { return }
+        appStore.toast = ToastState(
+            id: UUID().uuidString,
+            message: error.userMessage,
+            kind: .error
+        )
+    }
+}
+
+private struct ToastBubble: View {
+    let toast: ToastState
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: iconName)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(accent))
+            Text(toast.message)
+                .font(.callout)
+                .foregroundStyle(AppTheme.text)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 360, alignment: .leading)
+            Button {
+                onDismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(AppTheme.muted)
+                    .padding(6)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(Color.white.opacity(0.96), in: RoundedRectangle(cornerRadius: AppTheme.radiusLG, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.radiusLG, style: .continuous)
+                .stroke(accent.opacity(0.32), lineWidth: 1)
+        )
+        .shadow(color: accent.opacity(0.22), radius: 18, x: 0, y: 12)
+        .frame(maxWidth: 460, alignment: .topTrailing)
+    }
+
+    private var accent: Color {
+        switch toast.kind {
+        case .success: AppTheme.green
+        case .warning: AppTheme.orange
+        case .error: AppTheme.red
+        case .info: AppTheme.blue
+        }
+    }
+
+    private var iconName: String {
+        switch toast.kind {
+        case .success: "checkmark"
+        case .warning: "exclamationmark.triangle.fill"
+        case .error: "xmark.octagon.fill"
+        case .info: "info.circle.fill"
         }
     }
 }
